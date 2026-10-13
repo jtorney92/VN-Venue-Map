@@ -1034,16 +1034,6 @@
   "cap": 650
  },
  {
-  "n": "Anglesea Licensed Supermarket",
-  "a": "Shop 6 87-89 Great Ocean Road, Anglesea, VIC 3230",
-  "lat": -38.404588,
-  "lng": 144.189981,
-  "cat": "Bottle shop",
-  "st": "available",
-  "lic": "Packaged liquor",
-  "src": "lcv"
- },
- {
   "n": "Anglesea Motor Yacht Club",
   "a": "Melba Parade, Anglesea, VIC 3230",
   "lat": -38.426226,
@@ -3452,6 +3442,15 @@
   "cap": 1080
  },
  {
+  "n": "Black Sheep Geelong",
+  "a": "Ground Level, 66 Brougham Street, Geelong, VIC 3220",
+  "lat": -38.145226,
+  "lng": 144.361131,
+  "cat": "Restaurant / Cafe",
+  "st": "stockist",
+  "src": "manual"
+ },
+ {
   "n": "Blackburn Bowls Club",
   "a": "65 Pakenham Street, Blackburn, VIC 3130",
   "lat": -37.827051,
@@ -5637,7 +5636,7 @@
   "lat": -38.046523,
   "lng": 144.171777,
   "cat": "Bottle shop",
-  "st": "available",
+  "st": "stockist",
   "lic": "Packaged liquor",
   "src": "lcv"
  },
@@ -5761,6 +5760,17 @@
   "lic": "General (pub)",
   "src": "lcv",
   "cap": 55
+ },
+ {
+  "n": "Cellarbrations Daylesford",
+  "a": "55 Vincent Street, Daylesford, VIC 3460",
+  "lat": -37.342624,
+  "lng": 144.142771,
+  "cat": "Bottle shop",
+  "st": "stockist",
+  "lic": "Packaged liquor",
+  "src": "lcv",
+  "note": "Not moving"
  },
  {
   "n": "Cellarbrations Flinders Street",
@@ -7131,7 +7141,7 @@
   "lat": -38.331783,
   "lng": 144.324654,
   "cat": "Bottle shop",
-  "st": "available",
+  "st": "stockist",
   "lic": "General (pub)",
   "src": "lcv",
   "cap": 10
@@ -9047,16 +9057,6 @@
   "cap": 50
  },
  {
-  "n": "Edele Pty Ltd",
-  "a": "111-117 Vines Road, Hamlyn Heights, VIC 3215",
-  "lat": -38.120559,
-  "lng": 144.328526,
-  "cat": "Bottle shop",
-  "st": "available",
-  "lic": "Packaged liquor",
-  "src": "lcv"
- },
- {
   "n": "Eden Oak",
   "a": "Geelong Conference Centre 20 Adams Ct, East Geelong, VIC 3219",
   "lat": -38.151836,
@@ -10287,16 +10287,6 @@
   "src": "lcv"
  },
  {
-  "n": "Foxxy's Liquor",
-  "a": "55 Vincent Street, Daylesford, VIC 3460",
-  "lat": -37.342624,
-  "lng": 144.142771,
-  "cat": "Bottle shop",
-  "st": "available",
-  "lic": "Packaged liquor",
-  "src": "lcv"
- },
- {
   "n": "France Soir",
   "a": "Part Ground Floor 9 Toorak Road Gf & Part 9 Ff 11 Toorak Road, South Yarra, VIC 3141",
   "lat": -37.838204,
@@ -10567,7 +10557,7 @@
   "lat": -38.141991,
   "lng": 144.30985,
   "cat": "Pub / Hotel",
-  "st": "available",
+  "st": "stockist",
   "lic": "Late night (general)",
   "src": "lcv",
   "cap": 300
@@ -10939,17 +10929,6 @@
   "lic": "General (pub)",
   "src": "lcv",
   "cap": 50
- },
- {
-  "n": "Geelong Performing Arts Centre Trust",
-  "a": "50 Lt.malop Street, Geelong, VIC 3220",
-  "lat": -38.147432,
-  "lng": 144.35665,
-  "cat": "Function / Events",
-  "st": "available",
-  "lic": "On-premises",
-  "src": "lcv",
-  "cap": 2205
  },
  {
   "n": "Geelong Pool Club",
@@ -11415,6 +11394,17 @@
   "src": "lcv"
  },
  {
+  "n": "GPAC (Geelong Performing Arts Centre)",
+  "a": "50 Lt.malop Street, Geelong, VIC 3220",
+  "lat": -38.147432,
+  "lng": 144.35665,
+  "cat": "Function / Events",
+  "st": "stockist",
+  "lic": "On-premises",
+  "src": "lcv",
+  "cap": 2205
+ },
+ {
   "n": "Gpo Bendigo",
   "a": "60-64 Pall Mall, Bendigo, VIC 3550",
   "lat": -36.758383,
@@ -11814,10 +11804,11 @@
   "lat": -38.203116,
   "lng": 144.341167,
   "cat": "Pub / Hotel",
-  "st": "available",
+  "st": "stockist",
   "lic": "Late night (general)",
   "src": "lcv",
-  "cap": 703
+  "cap": 703,
+  "note": "Only purchased once"
  },
  {
   "n": "Grovedale Tennis Club",
@@ -13244,6 +13235,16 @@
   "src": "lcv"
  },
  {
+  "n": "IGA Anglesea",
+  "a": "Shop 6 87-89 Great Ocean Road, Anglesea, VIC 3230",
+  "lat": -38.404588,
+  "lng": 144.189981,
+  "cat": "Bottle shop",
+  "st": "stockist",
+  "lic": "Packaged liquor",
+  "src": "lcv"
+ },
+ {
   "n": "IGA Bittern Plus Liquor",
   "a": "2432 Frankston-flinders Road, Bittern, VIC 3918",
   "lat": -38.336624,
@@ -13954,7 +13955,7 @@
   "lat": -37.561073,
   "lng": 143.847126,
   "cat": "Bottle shop",
-  "st": "available",
+  "st": "stockist",
   "lic": "Packaged liquor",
   "src": "lcv"
  },
@@ -19324,7 +19325,7 @@
   "lat": -38.172461,
   "lng": 144.324581,
   "cat": "Bottle shop",
-  "st": "available",
+  "st": "stockist",
   "lic": "Packaged liquor",
   "src": "lcv"
  },
@@ -27591,6 +27592,15 @@
   "cap": 185
  },
  {
+  "n": "The Geelong Cave",
+  "a": "134 Aberdeen Street, Geelong West, VIC 3218",
+  "lat": -38.14584,
+  "lng": 144.34137,
+  "cat": "Bottle shop",
+  "st": "stockist",
+  "src": "manual"
+ },
+ {
   "n": "The Geelong Club",
   "a": "74 Brougham Street, Geelong, VIC 3220",
   "lat": -38.146161,
@@ -30176,6 +30186,16 @@
   "lic": "General (pub)",
   "src": "lcv",
   "cap": 390
+ },
+ {
+  "n": "Vallis IGA Hamlyn Heights",
+  "a": "111-117 Vines Road, Hamlyn Heights, VIC 3215",
+  "lat": -38.120559,
+  "lng": 144.328526,
+  "cat": "Bottle shop",
+  "st": "stockist",
+  "lic": "Packaged liquor",
+  "src": "lcv"
  },
  {
   "n": "Van Loons Nursery",
