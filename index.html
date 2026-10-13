@@ -173,9 +173,9 @@ function persist() {
 }
 
 // ---------- Map ----------
-const map = L.map('map', { center:HOME_VIEW.center, zoom:HOME_VIEW.zoom, zoomControl:true });
+const map = L.map('map', { center:HOME_VIEW.center, zoom:HOME_VIEW.zoom, zoomControl:true, maxZoom:18 });
 L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Dark_Gray_Base/MapServer/tile/{z}/{y}/{x}', {
-  attribution:'&copy; Esri &copy; OpenStreetMap contributors', maxZoom:17
+  attribution:'&copy; Esri &copy; OpenStreetMap contributors', maxNativeZoom:16, maxZoom:18
 }).addTo(map);
 
 const cluster = L.markerClusterGroup({
