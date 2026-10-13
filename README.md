@@ -1,7 +1,5 @@
 # Venue Map
 
-Prepared by Josh Torney.
-
 Interactive map of licensed venues for prospecting, centred on Geelong and surrounds.
 
 ## Files
