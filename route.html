@@ -427,6 +427,38 @@ const stopById = id => id && id.startsWith('d:') ? (RUN.det || {})[id] : ALL.fin
 const byVid = v => ALL.find(l => (l.vid || l.id) === v);
 const vidOf = l => l.vid || l.id;
 
+// The pitch moves with the venue: what stage it's at (from the visit log and its status), the next step you
+// left yourself last time, and anything your notes flagged (price, shelf space, the owner, tastings, local).
+const CUES = [
+  [/price|expensive|cost|cheap|margin/i, 'Price came up before: on the 1L it\'s about $1.90 a pour, and RRP leaves a 25% markup.'],
+  [/shelf|room|space|full/i, 'Space came up: offer one facing, or the 200ml at the counter.'],
+  [/owner|boss|buyer|manager (is )?(away|off|on leave)|decision/i, 'Last time it needed someone else: ask for the decision maker by name.'],
+  [/local|geelong|made here/i, 'They responded to "local": lead with made in Newtown.'],
+  [/rtd|can|carton/i, 'RTD came up: bring a cold can.'],
+  [/1l|1 l|litre/i, 'The 1L came up: bring a 1L sample.'],
+  [/cocktail|serve|g&t|gin and tonic/i, 'Serves came up: offer to build a house serve with them.'],
+];
+function pitchFor(l) {
+  const [lead, ask] = PITCH[l.cat] || ['Gin 700ml', 'What do customers ask for that\'s local?'];
+  const hist = LOG.filter(e => e.vid === vidOf(l));
+  const last = hist[hist.length - 1];
+  const has = a => hist.some(e => e.act === a);
+  let stage, line, q;
+  if (l.st === 'stockist' || has('Order')) {
+    if (!has('Customer tasting')) { stage = 'Stockist: grow it'; line = 'Check the shelf or back bar and how it\'s moving, then offer a customer tasting on a busy day.'; q = 'How has it gone since the first order?'; }
+    else { stage = 'Stockist: reorder and add a line'; line = 'Ask for the reorder, then add a size or product they don\'t carry yet (1L, 200ml or the RTD).'; q = 'What\'s sold best, and what would you add?'; }
+  } else if (has('Manager tasting') || has('Customer tasting')) {
+    stage = 'Tasted: ask for the order'; line = 'They\'ve tasted it. Suggest a small first order: two gin and one vodka, delivered this week.'; q = 'Shall we start you with two gin and one vodka?';
+  } else if (last && /^Not in/.test(last.outcome || '')) {
+    stage = 'Missed last time'; line = 'Find out who buys and when they\'re in, and leave a 200ml sample if it fits.'; q = 'Who looks after the spirits, and when are they in?';
+  } else if (hist.length) {
+    stage = 'Met, not tasted'; line = `Get it tasted. Lead with ${lead}.`; q = ask;
+  } else { stage = 'First visit'; line = `Lead with ${lead}.`; q = ask; }
+  const text = hist.map(e => (e.outcome || '') + ' ' + (e.next || '')).join(' ') + ' ' + (l.note || '');
+  const tips = CUES.filter(([re]) => re.test(text)).map(([, t]) => t).slice(0, 2);
+  return { stage, line, q, next: last && last.next ? last.next : '', tips };
+}
+
 function startRun() {
   const seq = planStops(); if (!seq.length) return;
   RUN = { date: today(), ids: seq.map(l => l.id), idx: 0 }; store.set('vr_run', RUN); openRun();
@@ -439,7 +471,7 @@ function renderStop() {
   const l = stopById(RUN.ids[RUN.idx]); if (!l) { RUN.idx++; store.set('vr_run', RUN); return renderStop(); }
   if (l.det) return renderDetour(l);
   pick = null;
-  const p = pri(l), [lead, ask] = PITCH[l.cat] || ['Gin 700ml', 'What do customers ask for that\'s local?'];
+  const p = pri(l), pt = pitchFor(l);
   const hist = LOG.filter(e => e.vid === vidOf(l)).slice(-3).reverse();
   const nextL = stopById(RUN.ids[RUN.idx + 1]);
   document.getElementById('run-title').textContent = `Stop ${RUN.idx + 1} of ${RUN.ids.length}`;
@@ -449,7 +481,8 @@ function renderStop() {
       <span class="tag ${p}">${p === 'Stockist' ? 'Stockist' : 'Priority ' + p}</span>
       <h2 style="margin-top:8px">${esc(l.n)}</h2>
       <div class="addr">${esc(l.cat)}${l.cap ? ' · ' + l.cap + ' patrons' : ''}<br>${esc(l.a || '')}</div>
-      <h4>Pitch</h4><div class="hint">Lead with <b>${esc(lead)}</b>.<br>Ask: "${esc(ask)}"</div>
+      <h4>Pitch · ${esc(pt.stage)}</h4><div class="hint">${pt.next ? `Your next step from last time: <b>${esc(pt.next)}</b><br>` : ''}${esc(pt.line)}<br>Ask: "${esc(pt.q)}"</div>
+      ${pt.tips.map(t => `<div class="hint" style="font-size:13px;color:var(--gold);margin-top:6px">${esc(t)}</div>`).join('')}
       ${hist.length || l.note ? `<h4>Last time</h4>${hist.map(e => `<div class="hist"><small>${dmy(e.date)} · ${esc(e.act)}${e.contact ? ' · ' + esc(e.contact) : ''}</small>${esc(e.outcome || '')}</div>`).join('')}${l.note ? `<div class="hist"><small>Map note</small>${esc(l.note)}</div>` : ''}` : ''}
     </div>
     <a class="bigbtn waze" href="${waze(l)}">Drive here with Waze</a>
@@ -607,9 +640,9 @@ function renderCal() {
     </div>`;
 }
 function evText(x) {
-  const [lead, ask] = PITCH[x.l.cat] || ['Gin 700ml', 'What do customers ask for that\'s local?'];
+  const pt = pitchFor(x.l);
   const last = [...LOG].reverse().find(e => e.vid === vidOf(x.l));
-  return `${x.l.cat}${x.l.cap ? ', ' + x.l.cap + ' patrons' : ''}. Priority ${pri(x.l)}.\nLead with ${lead}. Ask: ${ask}` +
+  return `${x.l.cat}${x.l.cap ? ', ' + x.l.cap + ' patrons' : ''}. Priority ${pri(x.l)}.\n${pt.stage}: ${pt.line} Ask: ${pt.q}${pt.next ? '\nNext step from last time: ' + pt.next : ''}${pt.tips.length ? '\n' + pt.tips.join(' ') : ''}` +
     (last ? `\nLast visit ${dmy(last.date)}: ${last.act}. ${last.outcome || ''}` : '') + (x.l.note ? `\nNote: ${x.l.note}` : '') +
     `\nLog the visit: ${location.href.split('#')[0].split('?')[0]}`;
 }
