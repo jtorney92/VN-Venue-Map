@@ -156,6 +156,9 @@ const store = {
 let EDITS = store.get('vm_edits', {});    // id -> {st, note, cat}
 let ADDED = store.get('vm_added', []);    // new locations added on this device
 
+// Venue IDs: licence number for register venues, M-<code> for anything added by hand or from a search
+let vidSeq = 0;
+function newVid() { vidSeq++; return 'M-' + Date.now().toString(36).toUpperCase() + vidSeq; }
 const idOf = l => (l.n + '|' + (+l.lat).toFixed(5) + '|' + (+l.lng).toFixed(5)).toLowerCase();
 const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 
@@ -163,7 +166,7 @@ function rebuild() {
   LOCS = [...BASE, ...ADDED].map(l => {
     const id = idOf(l);
     const e = EDITS[id] || {};
-    return { ...l, id, st: e.st || l.st || 'available', note: e.note != null ? e.note : (l.note || ''), cat: e.cat || l.cat || 'Other' };
+    return { ...l, id, st: e.st || l.st || 'available', note: e.note != null ? e.note : (l.note || ''), cat: e.cat || l.cat || 'Other', tier: e.tier || l.tier || '' };
   });
 }
 function dirty() {
@@ -203,6 +206,7 @@ function popupHtml(l) {
   return '<b>'+esc(l.n)+'</b><br><span style="color:#666">'+esc(l.cat)+'</span>' +
     (l.a ? '<br><span style="color:#888">'+esc(l.a)+'</span>' : '') +
     (l.lic ? '<br><span style="color:#888">Licence: '+esc(l.lic)+(l.cap ? ' &middot; capacity '+l.cap : '')+'</span>' : '') +
+    ((l.tier || l.zone) ? '<br><span style="color:#888">'+(l.tier ? 'Priority '+esc(l.tier) : '')+(l.tier && l.zone ? ' &middot; ' : '')+(l.zone ? esc(l.zone) : '')+'</span>' : '') +
     (l.note ? '<br><i>'+esc(l.note)+'</i>' : '') +
     '<div class="pop-actions">'+st+'</div>' +
     '<div class="pop-actions"><a href="https://www.google.com/maps/search/?api=1&query='+q+'" target="_blank" rel="noopener">Google Maps</a>' +
@@ -312,6 +316,7 @@ function openEditor(id) {
     (l ? '' : '<div class="field"><label>Street address, suburb</label><input id="ed-a" placeholder="e.g. 12 Pakington St, Geelong West"></div>') +
     '<div class="field"><label>Type</label><select id="ed-c">'+catOpts+'</select></div>' +
     '<div class="field"><label>Status</label><select id="ed-s">'+stOpts+'</select></div>' +
+    '<div class="field"><label>Priority</label><select id="ed-t">'+['','A','B','C','Stockist'].map(t => '<option value="'+t+'" '+(l && l.tier===t?'selected':'')+'>'+(t||'Not set')+'</option>').join('')+'</select></div>' +
     '<div class="field"><label>Notes</label><textarea id="ed-note" rows="3">'+esc(l?l.note:'')+'</textarea></div>' +
     '<button class="btn btn-primary" onclick="saveEditor('+(l?'\''+l.id.replace(/'/g,"\\'")+'\'':'null')+')">Save</button>' +
     (l && ADDED.some(a => idOf(a) === l.id) ? '<button class="btn btn-ghost" onclick="removeAdded(\''+l.id.replace(/'/g,"\\'")+'\')">Remove this venue</button>' : '') +
@@ -319,9 +324,9 @@ function openEditor(id) {
 }
 
 async function saveEditor(id) {
-  const cat = document.getElementById('ed-c').value, st = document.getElementById('ed-s').value, note = document.getElementById('ed-note').value.trim();
+  const cat = document.getElementById('ed-c').value, st = document.getElementById('ed-s').value, note = document.getElementById('ed-note').value.trim(), tier = document.getElementById('ed-t').value;
   if (id) {
-    EDITS[id] = { ...(EDITS[id]||{}), cat, st, note };
+    EDITS[id] = { ...(EDITS[id]||{}), cat, st, note, tier };
   } else {
     const n = document.getElementById('ed-n').value.trim(), a = document.getElementById('ed-a').value.trim();
     const msg = document.getElementById('ed-msg');
@@ -329,7 +334,7 @@ async function saveEditor(id) {
     msg.textContent = 'Finding that address...';
     const pos = await geocode(a);
     if (!pos) { msg.textContent = 'Could not find that address. Try adding the suburb and postcode.'; return; }
-    ADDED.push({ n, a, lat:pos.lat, lng:pos.lng, cat, st, note });
+    ADDED.push({ n, a, lat:pos.lat, lng:pos.lng, cat, st, note, tier, vid:newVid() });
   }
   persist(); rebuild(); drawPins(); refreshPanel();
 }
@@ -428,11 +433,11 @@ function renderFindResults() {
 }
 function addFound(i) {
   const v = foundVenues[i]; if (!v || v.onMap) return;
-  ADDED.push({ n:v.n, a:v.a, lat:v.lat, lng:v.lng, cat:v.cat, st:'available', note:[v.phone, v.web].filter(Boolean).join(' | ') });
+  ADDED.push({ n:v.n, a:v.a, lat:v.lat, lng:v.lng, cat:v.cat, st:'available', note:[v.phone, v.web].filter(Boolean).join(' | '), vid:newVid() });
   v.onMap = true; persist(); rebuild(); drawPins(); showFound(); refreshPanel(); map.closePopup();
 }
 function addAllFound() {
-  foundVenues.forEach((v, i) => { if (!v.onMap) { ADDED.push({ n:v.n, a:v.a, lat:v.lat, lng:v.lng, cat:v.cat, st:'available', note:[v.phone, v.web].filter(Boolean).join(' | ') }); v.onMap = true; } });
+  foundVenues.forEach((v, i) => { if (!v.onMap) { ADDED.push({ n:v.n, a:v.a, lat:v.lat, lng:v.lng, cat:v.cat, st:'available', note:[v.phone, v.web].filter(Boolean).join(' | '), vid:newVid() }); v.onMap = true; } });
   persist(); rebuild(); drawPins(); showFound(); refreshPanel();
 }
 function clearFound() { foundVenues = []; if (findLayer) map.removeLayer(findLayer); findLayer = null; refreshPanel(); }
@@ -456,7 +461,7 @@ function exportXLSX(list, title) {
 }
 function exportLocationsJSON() {
   const out = LOCS.map(l => { const o = { n:l.n, a:l.a||'', lat:l.lat, lng:l.lng, cat:l.cat, st:l.st };
-    ['note','lic','cap','src'].forEach(k => { if (l[k]) o[k] = l[k]; }); return o; })
+    ['note','lic','cap','src','lno','vid','tier','zone','region','sub'].forEach(k => { if (l[k]) o[k] = l[k]; }); return o; })
     .sort((a,b) => a.n.toLowerCase().localeCompare(b.n.toLowerCase()));
   download(new Blob([JSON.stringify(out, null, 1)], {type:'application/json'}), 'locations.json');
   if (confirm('Downloaded. Once you have uploaded it to the repo, clear the local changes on this device?')) {
