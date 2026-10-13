@@ -1,0 +1,540 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="robots" content="noindex, nofollow">
+<meta name="author" content="Josh Torney">
+<title>Venue Map</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+<link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.css"/>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="https://unpkg.com/leaflet.markercluster@1.5.3/dist/leaflet.markercluster.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<style>
+:root {
+  --bg:#14182b; --panel:#1b2140; --panel2:#232a4f; --line:#2c355f; --ink:#e8eaf3; --muted:#8d94b3; --accent:#e94560;
+  --gold:#f5c542;
+}
+* { margin:0; padding:0; box-sizing:border-box; }
+body { font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif; display:flex; height:100vh; overflow:hidden; background:var(--bg); color:var(--ink); }
+#map { flex:1; background:#1e1e1e; }
+#sidebar { width:320px; min-width:320px; background:var(--panel); border-left:1px solid var(--line); display:flex; flex-direction:column; overflow:hidden; }
+header { padding:14px 16px 12px; border-bottom:1px solid var(--line); }
+header h1 { font-size:16px; font-weight:700; }
+header h1 span { color:var(--accent); }
+#stats { display:flex; flex-wrap:wrap; gap:4px; margin-top:6px; }
+.pill { font-size:11px; color:var(--muted); background:var(--bg); border-radius:10px; padding:2px 8px; }
+.pill b { color:var(--ink); font-weight:600; }
+#search { margin-top:10px; width:100%; padding:8px 10px; border-radius:6px; border:1px solid var(--line); background:var(--bg); color:var(--ink); font-size:13px; outline:none; }
+#search:focus { border-color:var(--accent); }
+#search-results { display:none; margin-top:4px; background:var(--panel2); border-radius:6px; max-height:220px; overflow-y:auto; }
+.sr { padding:7px 10px; font-size:12px; cursor:pointer; border-bottom:1px solid var(--line); }
+.sr:hover { background:var(--accent); }
+.sr small { color:var(--muted); display:block; }
+.sr:hover small { color:#fff; }
+section { padding:12px 16px; border-bottom:1px solid var(--line); }
+section h3 { font-size:10px; text-transform:uppercase; letter-spacing:.08em; color:var(--muted); margin-bottom:8px; font-weight:600; }
+.chips { display:flex; flex-wrap:wrap; gap:5px; }
+.chip { font-size:11px; padding:4px 9px; border-radius:12px; border:1px solid var(--line); background:transparent; color:var(--ink); cursor:pointer; display:flex; align-items:center; gap:5px; }
+.chip .dot { width:9px; height:9px; border-radius:50%; }
+.chip.off { opacity:.35; }
+.chip .n { color:var(--muted); }
+#scroll { flex:1; overflow-y:auto; }
+#panel { padding:14px 16px; }
+#panel h2 { font-size:15px; margin-bottom:4px; }
+.muted { color:var(--muted); font-size:12px; line-height:1.6; }
+.btn { width:100%; padding:8px; border:none; border-radius:6px; font-size:12px; font-weight:600; cursor:pointer; margin-top:6px; }
+.btn-primary { background:var(--accent); color:#fff; }
+.btn-primary:hover { background:#c73652; }
+.btn-ghost { background:var(--panel2); color:var(--ink); border:1px solid var(--line); }
+.btn-ghost:hover { border-color:var(--accent); }
+.btn:disabled { opacity:.5; cursor:default; }
+.loc-row { padding:7px 9px; background:var(--bg); border-radius:6px; margin-bottom:4px; font-size:12px; cursor:pointer; display:flex; gap:8px; align-items:center; }
+.loc-row:hover { outline:1px solid var(--accent); }
+.loc-row .dot { width:9px; height:9px; border-radius:50%; flex-shrink:0; }
+.loc-row small { color:var(--muted); }
+.field { margin-top:8px; }
+.field label { font-size:11px; color:var(--muted); display:block; margin-bottom:3px; }
+.field input, .field select, .field textarea { width:100%; background:var(--bg); border:1px solid var(--line); color:var(--ink); border-radius:6px; padding:6px 8px; font-size:12px; font-family:inherit; }
+#save-bar { display:none; padding:10px 16px; background:var(--panel2); border-top:1px solid var(--gold); font-size:12px; color:var(--gold); gap:8px; align-items:center; }
+#save-bar.show { display:flex; }
+#save-bar button { flex-shrink:0; padding:6px 10px; border:none; border-radius:5px; background:var(--gold); color:#111; font-weight:700; font-size:11px; cursor:pointer; }
+.pin { border-radius:50%; border:1.5px solid rgba(255,255,255,.85); box-shadow:0 1px 4px rgba(0,0,0,.5); }
+.pin.contacted { border:2.5px solid #fff; }
+.pin.stockist { border:2.5px solid var(--gold); box-shadow:0 0 0 3px rgba(245,197,66,.35), 0 1px 4px rgba(0,0,0,.5); }
+.find-pin { width:16px; height:16px; transform:rotate(45deg); border:2px solid #fff; box-shadow:0 1px 4px rgba(0,0,0,.6); }
+.cluster { background:rgba(35,42,79,.92); border:2px solid rgba(255,255,255,.6); border-radius:50%; color:#fff; font-weight:700; font-size:11px; display:flex; align-items:center; justify-content:center; }
+.leaflet-popup-content { font-size:12px; line-height:1.5; min-width:200px; }
+.leaflet-popup-content b { font-size:13px; }
+.pop-actions { display:flex; gap:4px; margin-top:8px; flex-wrap:wrap; }
+.pop-actions button, .pop-actions a { font-size:11px; padding:4px 8px; border-radius:4px; border:1px solid #ccc; background:#f4f4f4; cursor:pointer; text-decoration:none; color:#222; }
+.pop-actions .on { background:#222; color:#fff; border-color:#222; }
+#loader { position:fixed; inset:0; background:var(--bg); display:flex; flex-direction:column; align-items:center; justify-content:center; gap:12px; z-index:9999; }
+.spinner { width:36px; height:36px; border:3px solid var(--line); border-top-color:var(--accent); border-radius:50%; animation:spin .8s linear infinite; }
+@keyframes spin { to { transform:rotate(360deg); } }
+@media (max-width:700px) {
+  body { flex-direction:column; }
+  #map { height:50vh; flex:none; }
+  #sidebar { width:100%; min-width:0; height:50vh; border-left:none; border-top:2px solid var(--accent); }
+}
+</style>
+</head>
+<body>
+<div id="loader"><div class="spinner"></div><div class="muted" id="loader-msg">Loading venues...</div></div>
+<div id="map"></div>
+<div id="sidebar">
+  <header>
+    <h1><span>&#9679;</span> Venue Map</h1>
+    <div id="stats"></div>
+    <input id="search" type="text" placeholder="Search venue or suburb..." autocomplete="off">
+    <div id="search-results"></div>
+  </header>
+  <div id="scroll">
+    <section>
+      <h3>Venue type</h3>
+      <div class="chips" id="cat-chips"></div>
+    </section>
+    <section>
+      <h3>Status</h3>
+      <div class="chips" id="status-chips"></div>
+    </section>
+    <div id="panel"></div>
+  </div>
+  <div id="save-bar"><span style="flex:1">Unsaved changes on this device</span><button onclick="exportLocationsJSON()">Download locations.json</button></div>
+</div>
+
+<script>
+// ---------- Config ----------
+const GOOGLE_KEY = 'AIzaSyAC_hfg9hd5nkMHNXCTg3wmu04Mpnmgu5o';
+const HOME_VIEW = { center:[-38.16, 144.38], zoom:11 };   // Geelong + surrounds
+const CATS = {
+  'Bar':                 '#9c6ade',
+  'Pub / Hotel':         '#4caf50',
+  'Restaurant / Cafe':   '#ff7043',
+  'Bottle shop':         '#29b6f6',
+  'Function / Events':   '#ffca28',
+  'Club':                '#26a69a',
+  'Accommodation':       '#5c8df6',
+  'Gift / Retail':       '#f06292',
+  'Corporate / Gifting': '#8bc34a',
+  'Winery / Distillery': '#a1887f',
+  'Other':               '#9e9e9e',
+};
+const STATUSES = { available:'Available', contacted:'Contacted', stockist:'Stockist' };
+// What the venue finder searches for, and which category each search lands in
+const FINDER_QUERIES = [
+  ['cocktail bar', 'Bar'], ['bar', 'Bar'], ['pub', 'Pub / Hotel'], ['hotel bar', 'Pub / Hotel'],
+  ['restaurant', 'Restaurant / Cafe'], ['liquor store', 'Bottle shop'], ['bottle shop', 'Bottle shop'],
+  ['function venue', 'Function / Events'], ['convention centre', 'Function / Events'], ['event venue', 'Function / Events'],
+  ['winery brewery distillery', 'Winery / Distillery'],
+  ['bed and breakfast', 'Accommodation'], ['motel', 'Accommodation'], ['holiday park', 'Accommodation'], ['boutique accommodation', 'Accommodation'],
+  ['florist', 'Gift / Retail'], ['gift hamper', 'Gift / Retail'], ['gift shop', 'Gift / Retail'],
+];
+// Corporate gifting prospects: searched separately with its own button so they don't flood the venue results
+const GIFTING_QUERIES = [
+  ['real estate agency', 'Corporate / Gifting'], ['car dealership', 'Corporate / Gifting'], ['accounting firm', 'Corporate / Gifting'],
+  ['law firm', 'Corporate / Gifting'], ['builder', 'Corporate / Gifting'], ['financial planner', 'Corporate / Gifting'],
+  ['event planner', 'Corporate / Gifting'], ['conference organiser', 'Corporate / Gifting'], ['corporate gift', 'Corporate / Gifting'],
+];
+const SKIP_CHAINS = /\b(mcdonald|kfc|subway|hungry jack|domino|pizza hut|red rooster|oporto|nando|guzman|zambrero|boost juice|starbucks|gloria jean|7-eleven|woolworths|coles supermarket|aldi|costco)\b/i;
+
+// ---------- State ----------
+let BASE = [];                 // from locations.json
+let LOCS = [];                 // BASE + local additions, with local edits applied
+const hiddenCats = new Set();
+const hiddenStatus = new Set();
+let selectedSuburb = null;     // { name, layer }
+let foundVenues = [];          // last finder results
+let findLayer = null;
+const store = {
+  get(k, d) { try { const v = localStorage.getItem(k); return v ? JSON.parse(v) : d; } catch(e) { return d; } },
+  set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch(e) {} },
+};
+let EDITS = store.get('vm_edits', {});    // id -> {st, note, cat}
+let ADDED = store.get('vm_added', []);    // new locations added on this device
+
+const idOf = l => (l.n + '|' + (+l.lat).toFixed(5) + '|' + (+l.lng).toFixed(5)).toLowerCase();
+const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+
+function rebuild() {
+  LOCS = [...BASE, ...ADDED].map(l => {
+    const id = idOf(l);
+    const e = EDITS[id] || {};
+    return { ...l, id, st: e.st || l.st || 'available', note: e.note != null ? e.note : (l.note || ''), cat: e.cat || l.cat || 'Other' };
+  });
+}
+function dirty() {
+  return Object.keys(EDITS).length > 0 || ADDED.length > 0;
+}
+function persist() {
+  store.set('vm_edits', EDITS); store.set('vm_added', ADDED);
+  document.getElementById('save-bar').classList.toggle('show', dirty());
+}
+
+// ---------- Map ----------
+const map = L.map('map', { center:HOME_VIEW.center, zoom:HOME_VIEW.zoom, zoomControl:true });
+L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Dark_Gray_Base/MapServer/tile/{z}/{y}/{x}', {
+  attribution:'&copy; Esri &copy; OpenStreetMap contributors', maxZoom:17
+}).addTo(map);
+
+const cluster = L.markerClusterGroup({
+  maxClusterRadius:45, showCoverageOnHover:false, disableClusteringAtZoom:15, spiderfyOnMaxZoom:true,
+  iconCreateFunction: c => {
+    const n = c.getChildCount(); const s = n > 100 ? 40 : n > 20 ? 34 : 28;
+    return L.divIcon({ html:'<div class="cluster" style="width:'+s+'px;height:'+s+'px">'+n+'</div>', className:'', iconSize:[s,s] });
+  }
+});
+map.addLayer(cluster);
+const markersById = {};
+
+function pinIcon(l) {
+  const col = CATS[l.cat] || CATS.Other;
+  const size = l.st === 'stockist' ? 14 : 11;
+  return L.divIcon({ className:'', html:'<div class="pin '+l.st+'" style="width:'+size+'px;height:'+size+'px;background:'+col+'"></div>', iconSize:[size,size], iconAnchor:[size/2,size/2] });
+}
+
+function popupHtml(l) {
+  const st = Object.entries(STATUSES).map(([k,v]) =>
+    '<button class="'+(l.st===k?'on':'')+'" onclick="setStatus(\''+l.id.replace(/'/g,"\\'")+'\',\''+k+'\')">'+v+'</button>').join('');
+  const q = encodeURIComponent(l.n + ' ' + (l.a || ''));
+  return '<b>'+esc(l.n)+'</b><br><span style="color:#666">'+esc(l.cat)+'</span>' +
+    (l.a ? '<br><span style="color:#888">'+esc(l.a)+'</span>' : '') +
+    (l.lic ? '<br><span style="color:#888">Licence: '+esc(l.lic)+(l.cap ? ' &middot; capacity '+l.cap : '')+'</span>' : '') +
+    (l.note ? '<br><i>'+esc(l.note)+'</i>' : '') +
+    '<div class="pop-actions">'+st+'</div>' +
+    '<div class="pop-actions"><a href="https://www.google.com/maps/search/?api=1&query='+q+'" target="_blank" rel="noopener">Google Maps</a>' +
+    '<button onclick="openEditor(\''+l.id.replace(/'/g,"\\'")+'\')">Edit</button></div>';
+}
+
+function visible(l) { return !hiddenCats.has(l.cat) && !hiddenStatus.has(l.st); }
+
+function drawPins() {
+  cluster.clearLayers();
+  for (const k in markersById) delete markersById[k];
+  const batch = [];
+  LOCS.forEach(l => {
+    if (!visible(l) || l.lat == null) return;
+    const m = L.marker([l.lat, l.lng], { icon:pinIcon(l), zIndexOffset: l.st === 'stockist' ? 500 : 0 });
+    m.bindPopup(() => popupHtml(LOCS.find(x => x.id === l.id) || l));
+    m.bindTooltip(esc(l.n), { direction:'top', offset:[0,-6] });
+    markersById[l.id] = m;
+    batch.push(m);
+  });
+  cluster.addLayers(batch);
+  renderStats(); renderChips();
+}
+
+// ---------- Sidebar ----------
+function renderStats() {
+  const vis = LOCS.filter(visible).length;
+  const stock = LOCS.filter(l => l.st === 'stockist').length;
+  const cont = LOCS.filter(l => l.st === 'contacted').length;
+  document.getElementById('stats').innerHTML =
+    '<span class="pill"><b>'+LOCS.length.toLocaleString()+'</b> venues</span>' +
+    '<span class="pill"><b>'+vis.toLocaleString()+'</b> showing</span>' +
+    '<span class="pill"><b>'+cont+'</b> contacted</span>' +
+    '<span class="pill" style="color:var(--gold)"><b style="color:var(--gold)">'+stock+'</b> stockists</span>';
+}
+
+function renderChips() {
+  const catCount = {}, stCount = {};
+  LOCS.forEach(l => { catCount[l.cat] = (catCount[l.cat]||0) + 1; stCount[l.st] = (stCount[l.st]||0) + 1; });
+  document.getElementById('cat-chips').innerHTML = Object.entries(CATS).map(([c,col]) =>
+    '<button class="chip '+(hiddenCats.has(c)?'off':'')+'" onclick="toggleCat(\''+c+'\')"><span class="dot" style="background:'+col+'"></span>'+c+' <span class="n">'+(catCount[c]||0)+'</span></button>').join('');
+  document.getElementById('status-chips').innerHTML = Object.entries(STATUSES).map(([k,v]) =>
+    '<button class="chip '+(hiddenStatus.has(k)?'off':'')+'" onclick="toggleStatus(\''+k+'\')">'+v+' <span class="n">'+(stCount[k]||0)+'</span></button>').join('');
+}
+function toggleCat(c) { hiddenCats.has(c) ? hiddenCats.delete(c) : hiddenCats.add(c); drawPins(); refreshPanel(); }
+function toggleStatus(s) { hiddenStatus.has(s) ? hiddenStatus.delete(s) : hiddenStatus.add(s); drawPins(); refreshPanel(); }
+
+function homePanel() {
+  selectedSuburb = null;
+  document.getElementById('panel').innerHTML =
+    '<p class="muted">Click a suburb to see its venues and search for new ones. Click any pin to mark it Contacted or Stockist.</p>' +
+    '<button class="btn btn-primary" onclick="findVenues(null)">Find venues in current map view</button>' +
+    '<button class="btn btn-ghost" onclick="findVenues(null, GIFTING_QUERIES)">Find corporate gifting prospects in view</button>' +
+    '<button class="btn btn-ghost" onclick="openEditor(null)">+ Add a venue</button>' +
+    '<button class="btn btn-ghost" onclick="exportXLSX(LOCS.filter(visible), \'Venues\')">Export showing venues (XLSX)</button>' +
+    '<button class="btn btn-ghost" onclick="map.setView(HOME_VIEW.center, HOME_VIEW.zoom)">Back to Geelong</button>' +
+    (dirty() ? '<p class="muted" style="margin-top:12px">Your status changes and additions are saved in this browser. Download locations.json and upload it to the repo to make them permanent for everyone.</p>' : '');
+}
+
+function suburbPanel() {
+  if (!selectedSuburb) return homePanel();
+  const b = selectedSuburb.layer.getBounds();
+  const inside = LOCS.filter(l => visible(l) && b.contains([l.lat, l.lng]) && pointInLayer(l, selectedSuburb.layer))
+    .sort((a,b) => (b.st==='stockist') - (a.st==='stockist') || a.n.localeCompare(b.n));
+  document.getElementById('panel').innerHTML =
+    '<h2>'+esc(selectedSuburb.name)+'</h2><p class="muted">'+inside.length+' venue'+(inside.length===1?'':'s')+' on the map</p>' +
+    '<button class="btn btn-primary" id="find-btn" onclick="findVenues(selectedSuburb)">Find new venues here</button>' +
+    '<button class="btn btn-ghost" onclick="findVenues(selectedSuburb, GIFTING_QUERIES)">Find corporate gifting prospects here</button>' +
+    '<button class="btn btn-ghost" onclick="exportXLSX(currentSuburbList(), selectedSuburb.name)">Export this suburb (XLSX)</button>' +
+    '<button class="btn btn-ghost" onclick="clearSuburb()">Clear selection</button>' +
+    '<div id="find-out"></div>' +
+    '<div style="margin-top:12px">' + inside.map(l =>
+      '<div class="loc-row" onclick="flyTo(\''+l.id.replace(/'/g,"\\'")+'\')"><span class="dot" style="background:'+(CATS[l.cat]||CATS.Other)+'"></span><div>'+esc(l.n)+
+      (l.st!=='available' ? ' <small style="color:'+(l.st==='stockist'?'var(--gold)':'#fff')+'">'+STATUSES[l.st]+'</small>' : '')+
+      '<br><small>'+esc(l.cat)+'</small></div></div>').join('') + '</div>';
+  renderFindResults();
+}
+function currentSuburbList() {
+  if (!selectedSuburb) return [];
+  const b = selectedSuburb.layer.getBounds();
+  return LOCS.filter(l => visible(l) && b.contains([l.lat, l.lng]) && pointInLayer(l, selectedSuburb.layer));
+}
+function refreshPanel() { selectedSuburb ? suburbPanel() : homePanel(); }
+
+function flyTo(id) {
+  const l = LOCS.find(x => x.id === id); if (!l) return;
+  map.setView([l.lat, l.lng], 17);
+  setTimeout(() => { const m = markersById[id]; if (m) cluster.zoomToShowLayer(m, () => m.openPopup()); }, 350);
+}
+
+// ---------- Status / edit / add ----------
+function setStatus(id, st) {
+  const l = LOCS.find(x => x.id === id); if (!l) return;
+  EDITS[id] = { ...(EDITS[id]||{}), st };
+  persist(); rebuild(); drawPins(); refreshPanel();
+  const m = markersById[id]; if (m) cluster.zoomToShowLayer(m, () => m.openPopup());
+}
+
+function openEditor(id) {
+  const l = id ? LOCS.find(x => x.id === id) : null;
+  map.closePopup();
+  const catOpts = Object.keys(CATS).map(c => '<option '+(l && l.cat===c?'selected':'')+'>'+c+'</option>').join('');
+  const stOpts = Object.entries(STATUSES).map(([k,v]) => '<option value="'+k+'" '+(l && l.st===k?'selected':'')+'>'+v+'</option>').join('');
+  document.getElementById('panel').innerHTML =
+    '<h2>'+(l ? 'Edit venue' : 'Add a venue')+'</h2>' +
+    '<div class="field"><label>Name</label><input id="ed-n" value="'+esc(l?l.n:'')+'" '+(l?'disabled':'')+'></div>' +
+    (l ? '' : '<div class="field"><label>Street address, suburb</label><input id="ed-a" placeholder="e.g. 12 Pakington St, Geelong West"></div>') +
+    '<div class="field"><label>Type</label><select id="ed-c">'+catOpts+'</select></div>' +
+    '<div class="field"><label>Status</label><select id="ed-s">'+stOpts+'</select></div>' +
+    '<div class="field"><label>Notes</label><textarea id="ed-note" rows="3">'+esc(l?l.note:'')+'</textarea></div>' +
+    '<button class="btn btn-primary" onclick="saveEditor('+(l?'\''+l.id.replace(/'/g,"\\'")+'\'':'null')+')">Save</button>' +
+    (l && ADDED.some(a => idOf(a) === l.id) ? '<button class="btn btn-ghost" onclick="removeAdded(\''+l.id.replace(/'/g,"\\'")+'\')">Remove this venue</button>' : '') +
+    '<button class="btn btn-ghost" onclick="refreshPanel()">Cancel</button><p class="muted" id="ed-msg" style="margin-top:8px"></p>';
+}
+
+async function saveEditor(id) {
+  const cat = document.getElementById('ed-c').value, st = document.getElementById('ed-s').value, note = document.getElementById('ed-note').value.trim();
+  if (id) {
+    EDITS[id] = { ...(EDITS[id]||{}), cat, st, note };
+  } else {
+    const n = document.getElementById('ed-n').value.trim(), a = document.getElementById('ed-a').value.trim();
+    const msg = document.getElementById('ed-msg');
+    if (!n || !a) { msg.textContent = 'Name and address are both needed.'; return; }
+    msg.textContent = 'Finding that address...';
+    const pos = await geocode(a);
+    if (!pos) { msg.textContent = 'Could not find that address. Try adding the suburb and postcode.'; return; }
+    ADDED.push({ n, a, lat:pos.lat, lng:pos.lng, cat, st, note });
+  }
+  persist(); rebuild(); drawPins(); refreshPanel();
+}
+function removeAdded(id) {
+  ADDED = ADDED.filter(a => idOf(a) !== id); delete EDITS[id];
+  persist(); rebuild(); drawPins(); refreshPanel();
+}
+
+async function geocode(addr) {
+  try {
+    const r = await fetch('https://nominatim.openstreetmap.org/search?format=json&limit=1&countrycodes=au&q=' + encodeURIComponent(addr + ', Victoria'));
+    const j = await r.json();
+    if (j.length) return { lat:+j[0].lat, lng:+j[0].lon };
+  } catch(e) {}
+  return null;
+}
+
+// ---------- Venue finder (Google Places, your API key) ----------
+async function findVenues(sub, querySet) {
+  const QUERIES = querySet || FINDER_QUERIES;
+  const bounds = sub ? sub.layer.getBounds() : map.getBounds();
+  const label = sub ? sub.name : 'this area';
+  const btn = document.getElementById('find-btn');
+  if (btn) { btn.disabled = true; btn.textContent = 'Searching ' + label + '...'; }
+  const s = bounds.getSouth(), n = bounds.getNorth(), w = bounds.getWest(), e = bounds.getEast();
+  const rect = { low:{ latitude:s, longitude:w }, high:{ latitude:n, longitude:e } };
+  const seen = new Set(), results = [];
+  for (const [q, cat] of QUERIES) {
+    try {
+      const r = await fetch('https://places.googleapis.com/v1/places:searchText', {
+        method:'POST',
+        headers:{ 'Content-Type':'application/json', 'X-Goog-Api-Key':GOOGLE_KEY,
+          'X-Goog-FieldMask':'places.id,places.displayName,places.formattedAddress,places.location,places.nationalPhoneNumber,places.websiteUri,places.primaryTypeDisplayName,places.businessStatus' },
+        body: JSON.stringify({ textQuery: q + (sub ? ' ' + sub.name : '') + ' Victoria', locationRestriction:{ rectangle:rect }, maxResultCount:20 }),
+      });
+      if (!r.ok) { if (r.status === 403) throw new Error('Google key rejected (it only works on the published site)'); continue; }
+      const j = await r.json();
+      (j.places || []).forEach(p => {
+        if (seen.has(p.id) || !p.location) return;
+        if (p.businessStatus && p.businessStatus !== 'OPERATIONAL') return;
+        const name = p.displayName ? p.displayName.text : '';
+        if (!name || SKIP_CHAINS.test(name)) return;
+        seen.add(p.id);
+        results.push({ n:name, a:(p.formattedAddress||'').replace(', Australia',''), lat:p.location.latitude, lng:p.location.longitude,
+          cat, gtype:p.primaryTypeDisplayName ? p.primaryTypeDisplayName.text : '', phone:p.nationalPhoneNumber||'', web:p.websiteUri||'' });
+      });
+    } catch(err) {
+      if (btn) { btn.disabled = false; btn.textContent = 'Find new venues here'; }
+      document.getElementById('find-out') && (document.getElementById('find-out').innerHTML = '<p class="muted" style="color:var(--accent)">'+esc(err.message)+'</p>');
+      return;
+    }
+  }
+  // Flag ones already on the map (same name nearby)
+  results.forEach(v => { v.onMap = LOCS.some(l => near(l, v, 0.15) && simName(l.n, v.n)); });
+  foundVenues = results;
+  showFound();
+  if (!sub) { homePanel(); document.getElementById('panel').insertAdjacentHTML('beforeend', '<div id="find-out"></div>'); }
+  if (btn) { btn.disabled = false; btn.textContent = 'Find new venues here'; }
+  renderFindResults();
+}
+function near(a, b, km) {
+  const dLat = (a.lat-b.lat)*111, dLng = (a.lng-b.lng)*111*Math.cos(a.lat*Math.PI/180);
+  return Math.sqrt(dLat*dLat + dLng*dLng) <= km;
+}
+function simName(a, b) {
+  const k = s => s.toLowerCase().replace(/^the\s+/,'').replace(/[^a-z0-9]/g,'').slice(0,10);
+  return k(a) === k(b);
+}
+function showFound() {
+  if (findLayer) map.removeLayer(findLayer);
+  findLayer = L.layerGroup(foundVenues.filter(v => !v.onMap).map((v, i) => {
+    const m = L.marker([v.lat, v.lng], { icon:L.divIcon({ className:'', html:'<div class="find-pin" style="background:'+CATS[v.cat]+'"></div>', iconSize:[16,16], iconAnchor:[8,8] }), zIndexOffset:800 });
+    m.bindPopup('<b>'+esc(v.n)+'</b><br><span style="color:#666">'+esc(v.gtype || v.cat)+'</span><br><span style="color:#888">'+esc(v.a)+'</span>' +
+      (v.phone ? '<br>'+esc(v.phone) : '') + (v.web ? '<br><a href="'+esc(v.web)+'" target="_blank" rel="noopener">Website</a>' : '') +
+      '<div class="pop-actions"><button onclick="addFound('+foundVenues.indexOf(v)+')">+ Add to map</button></div>');
+    return m;
+  })).addTo(map);
+}
+function renderFindResults() {
+  const box = document.getElementById('find-out'); if (!box || !foundVenues.length) return;
+  const fresh = foundVenues.filter(v => !v.onMap);
+  box.innerHTML = '<div style="margin-top:12px;padding:10px;background:var(--panel2);border-radius:8px">' +
+    '<div style="font-size:12px;font-weight:600">'+foundVenues.length+' found, '+fresh.length+' not on the map yet</div>' +
+    '<p class="muted">New ones show as diamonds. Click one to add it, or add them all.</p>' +
+    (fresh.length ? '<button class="btn btn-primary" onclick="addAllFound()">Add all '+fresh.length+' to the map</button>' : '') +
+    '<button class="btn btn-ghost" onclick="exportXLSX(foundVenues, \'Found venues\')">Export found venues (XLSX)</button>' +
+    '<button class="btn btn-ghost" onclick="clearFound()">Clear search results</button></div>';
+}
+function addFound(i) {
+  const v = foundVenues[i]; if (!v || v.onMap) return;
+  ADDED.push({ n:v.n, a:v.a, lat:v.lat, lng:v.lng, cat:v.cat, st:'available', note:[v.phone, v.web].filter(Boolean).join(' | ') });
+  v.onMap = true; persist(); rebuild(); drawPins(); showFound(); refreshPanel(); map.closePopup();
+}
+function addAllFound() {
+  foundVenues.forEach((v, i) => { if (!v.onMap) { ADDED.push({ n:v.n, a:v.a, lat:v.lat, lng:v.lng, cat:v.cat, st:'available', note:[v.phone, v.web].filter(Boolean).join(' | ') }); v.onMap = true; } });
+  persist(); rebuild(); drawPins(); showFound(); refreshPanel();
+}
+function clearFound() { foundVenues = []; if (findLayer) map.removeLayer(findLayer); findLayer = null; refreshPanel(); }
+
+// ---------- Export ----------
+function exportXLSX(list, title) {
+  if (!list.length) { alert('Nothing to export with the current filters.'); return; }
+  const rows = [['Venue','Type','Status','Address','Liquor licence','Patron capacity','Notes','Latitude','Longitude','Google Maps']];
+  list.slice().sort((a,b) => a.n.localeCompare(b.n)).forEach(l => rows.push([l.n, l.cat, STATUSES[l.st] || 'Available', l.a || '', l.lic || '', l.cap || '', l.note || [l.phone, l.web].filter(Boolean).join(' | '),
+    l.lat, l.lng, 'https://www.google.com/maps/search/?api=1&query=' + encodeURIComponent(l.n + ' ' + (l.a||''))]));
+  const name = (title || 'Venues').replace(/[^A-Za-z0-9]+/g,'_') + '_' + new Date().toISOString().slice(0,10);
+  if (typeof XLSX === 'undefined') {
+    const csv = rows.map(r => r.map(c => '"'+String(c).replace(/"/g,'""')+'"').join(',')).join('\n');
+    download(new Blob([csv], {type:'text/csv'}), name + '.csv'); return;
+  }
+  const ws = XLSX.utils.aoa_to_sheet(rows);
+  ws['!cols'] = rows[0].map((h, i) => ({ wch: Math.min(60, Math.max(10, ...rows.map(r => String(r[i]||'').length)) + 2) }));
+  const wb = XLSX.utils.book_new(); wb.Props = { Author:'Josh Torney', Title:title || 'Venues' };
+  XLSX.utils.book_append_sheet(wb, ws, 'Venues');
+  XLSX.writeFile(wb, name + '.xlsx');
+}
+function exportLocationsJSON() {
+  const out = LOCS.map(l => { const o = { n:l.n, a:l.a||'', lat:l.lat, lng:l.lng, cat:l.cat, st:l.st };
+    ['note','lic','cap','src'].forEach(k => { if (l[k]) o[k] = l[k]; }); return o; })
+    .sort((a,b) => a.n.toLowerCase().localeCompare(b.n.toLowerCase()));
+  download(new Blob([JSON.stringify(out, null, 1)], {type:'application/json'}), 'locations.json');
+  if (confirm('Downloaded. Once you have uploaded it to the repo, clear the local changes on this device?')) {
+    EDITS = {}; ADDED = []; persist();
+  }
+}
+function download(blob, name) { const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = name; a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 1000); }
+
+// ---------- Search ----------
+const searchEl = document.getElementById('search'), resEl = document.getElementById('search-results');
+let SUBURB_LAYERS = {};
+searchEl.addEventListener('input', () => {
+  const q = searchEl.value.trim().toLowerCase();
+  if (q.length < 2) { resEl.style.display = 'none'; return; }
+  const hits = [];
+  Object.keys(SUBURB_LAYERS).filter(s => s.toLowerCase().includes(q)).slice(0,4).forEach(s => hits.push('<div class="sr" onclick="pickSuburb(\''+s.replace(/'/g,"\\'")+'\')">'+esc(s)+'<small>Suburb</small></div>'));
+  LOCS.filter(l => l.n.toLowerCase().includes(q)).slice(0,10).forEach(l => hits.push('<div class="sr" onclick="resEl.style.display=\'none\';flyTo(\''+l.id.replace(/'/g,"\\'")+'\')">'+esc(l.n)+'<small>'+esc(l.cat)+(l.a ? ' &middot; '+esc(l.a) : '')+'</small></div>'));
+  resEl.innerHTML = hits.join('') || '<div class="sr" style="cursor:default">No matches</div>';
+  resEl.style.display = 'block';
+});
+function pickSuburb(name) {
+  resEl.style.display = 'none'; searchEl.value = '';
+  const layer = SUBURB_LAYERS[name]; if (!layer) return;
+  map.fitBounds(layer.getBounds(), { padding:[40,40] });
+  selectSuburb(name, layer);
+}
+
+// ---------- Suburb boundaries ----------
+const SUB_STYLE = { color:'#5a648f', weight:0.6, opacity:0.5, fillOpacity:0 };
+const SUB_HOVER = { color:'#cfd4ee', weight:1.5, opacity:0.9, fillColor:'#cfd4ee', fillOpacity:0.06 };
+const SUB_SELECTED = { color:'#e94560', weight:2.5, opacity:1, fillColor:'#e94560', fillOpacity:0.08 };
+function selectSuburb(name, layer) {
+  if (selectedSuburb) selectedSuburb.layer.setStyle(SUB_STYLE);
+  if (selectedSuburb && selectedSuburb.layer === layer) { selectedSuburb = null; homePanel(); return; }
+  selectedSuburb = { name, layer };
+  layer.setStyle(SUB_SELECTED);
+  suburbPanel();
+}
+function clearSuburb() { if (selectedSuburb) selectedSuburb.layer.setStyle(SUB_STYLE); selectedSuburb = null; clearFound(); homePanel(); }
+
+// Ray-casting point-in-polygon so suburb lists match the boundary, not just its bounding box
+function pointInLayer(l, layer) {
+  const pt = [l.lng, l.lat];
+  const test = ring => { let inside = false; for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
+    const xi = ring[i][0], yi = ring[i][1], xj = ring[j][0], yj = ring[j][1];
+    if (((yi > pt[1]) !== (yj > pt[1])) && (pt[0] < (xj - xi) * (pt[1] - yi) / (yj - yi) + xi)) inside = !inside; } return inside; };
+  const g = layer.feature.geometry;
+  const polys = g.type === 'Polygon' ? [g.coordinates] : g.type === 'MultiPolygon' ? g.coordinates : [];
+  return polys.some(p => test(p[0]) && !p.slice(1).some(test));
+}
+function titleCase(s) { return s.toLowerCase().replace(/\b[a-z]/g, c => c.toUpperCase()); }
+
+async function loadBoundaries() {
+  for (const url of ['https://raw.githubusercontent.com/tonywr71/GeoJson-Data/master/suburb-2-vic.geojson']) {
+    try { const r = await fetch(url); if (r.ok) return await r.json(); } catch(e) {}
+  }
+  return null;
+}
+
+// ---------- Boot ----------
+(async function init() {
+  const msg = document.getElementById('loader-msg');
+  try {
+    const r = await fetch('locations.json', { cache:'no-cache' });
+    BASE = r.ok ? await r.json() : [];
+    if (!r.ok) msg.textContent = 'locations.json not found, starting empty';
+  } catch(e) { BASE = []; }
+  rebuild(); drawPins(); homePanel(); persist();
+  document.getElementById('loader').style.display = 'none';
+
+  const geo = await loadBoundaries();
+  if (geo) {
+    const gl = L.geoJSON(geo, {
+      style: () => SUB_STYLE,
+      onEachFeature: (f, layer) => {
+        const raw = f.properties.vic_loca_2 || f.properties.SSC_NAME || f.properties.name || '';
+        if (!raw) return;
+        const name = titleCase(raw.trim());
+        SUBURB_LAYERS[name] = layer;
+        layer.on('mouseover', () => { if (!selectedSuburb || selectedSuburb.layer !== layer) layer.setStyle(SUB_HOVER); });
+        layer.on('mouseout', () => { if (!selectedSuburb || selectedSuburb.layer !== layer) layer.setStyle(SUB_STYLE); });
+        layer.on('click', () => selectSuburb(name, layer));
+        layer.bindTooltip(name, { sticky:true, direction:'top', opacity:0.85 });
+      }
+    }).addTo(map);
+    gl.bringToBack();
+  }
+})();
+</script>
+</body>
+</html>
