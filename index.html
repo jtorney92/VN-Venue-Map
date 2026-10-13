@@ -315,7 +315,7 @@ function rowHtml(l) {
     <div>
       <div class="t" onclick="fly('${jsId(l.id)}')">${esc(l.n)}</div>
       <div class="s">${esc(l.cat)}${l.cap ? ' · ' + l.cap + ' patrons' : ''} · ${esc(l.a || '')}</div>
-      ${l.note ? `<div class="note">${esc(l.note)}</div>` : ''}${lastVisit(l)}
+      ${l.note ? `<div class="note">${esc(l.note)}</div>` : ''}${lastVisit(l)}${callLine(l)}
       <div class="acts">
         <button class="${l.st === 'contacted' ? 'on' : ''}" onclick="setSt('${jsId(l.id)}','contacted')">Contacted</button>
         <button class="${l.st === 'stockist' ? 'on gold' : ''}" onclick="setSt('${jsId(l.id)}','stockist')">Stockist</button>
@@ -471,7 +471,7 @@ function renderStop() {
   const l = stopById(RUN.ids[RUN.idx]); if (!l) { RUN.idx++; store.set('vr_run', RUN); return renderStop(); }
   if (l.det) return renderDetour(l);
   pick = null;
-  const p = pri(l), pt = pitchFor(l);
+  const p = pri(l), pt = pitchFor(l), cs = contactsOf(l), lastC = cs[0];
   const hist = LOG.filter(e => e.vid === vidOf(l)).slice(-3).reverse();
   const nextL = stopById(RUN.ids[RUN.idx + 1]);
   document.getElementById('run-title').textContent = `Stop ${RUN.idx + 1} of ${RUN.ids.length}`;
@@ -483,13 +483,18 @@ function renderStop() {
       <div class="addr">${esc(l.cat)}${l.cap ? ' · ' + l.cap + ' patrons' : ''}<br>${esc(l.a || '')}</div>
       <h4>Pitch · ${esc(pt.stage)}</h4><div class="hint">${pt.next ? `Your next step from last time: <b>${esc(pt.next)}</b><br>` : ''}${esc(pt.line)}<br>Ask: "${esc(pt.q)}"</div>
       ${pt.tips.map(t => `<div class="hint" style="font-size:13px;color:var(--gold);margin-top:6px">${esc(t)}</div>`).join('')}
+      ${contactsHtml(l)}
       ${hist.length || l.note ? `<h4>Last time</h4>${hist.map(e => `<div class="hist"><small>${dmy(e.date)} · ${esc(e.act)}${e.contact ? ' · ' + esc(e.contact) : ''}</small>${esc(e.outcome || '')}</div>`).join('')}${l.note ? `<div class="hist"><small>Map note</small>${esc(l.note)}</div>` : ''}` : ''}
     </div>
     <a class="bigbtn waze" href="${waze(l)}">Drive here with Waze</a>
     <div class="card">
       <h4 style="margin-top:0">How did it go?</h4>
       <div class="opts">${OUTCOMES.map(o => `<button class="opt" onclick="choose(this,'${o}')">${o}</button>`).join('')}</div>
-      <input class="fld" id="r-contact" placeholder="Who you spoke to">
+      <input class="fld" id="r-contact" placeholder="Who you spoke to (e.g. Mick, owner)" value="${esc(lastC ? lastC.name : '')}">
+      <div class="row2">
+        <input class="fld" id="r-phone" type="tel" inputmode="tel" placeholder="Mobile" value="${esc(lastC ? lastC.phone : '')}">
+        <input class="fld" id="r-email" type="email" inputmode="email" placeholder="Email" value="${esc(lastC ? lastC.email : '')}">
+      </div>
       <input class="fld" id="r-bottles" type="number" inputmode="numeric" placeholder="Bottles ordered" style="display:none">
       <textarea class="fld" id="r-note" rows="3" placeholder="What happened, what they liked, what to bring next time"></textarea>
       <div class="row2">
@@ -515,9 +520,10 @@ function saveStop(go) {
   const fu = v('r-fu') ? plusDays(+v('r-fu')) : '';
   const note = v('r-note');
   LOG.push({ date: today(), vid: vidOf(l), n: l.n, sub: l.sub || '', act: pick === 'Not in' ? 'Visit' : pick,
-    by: 'Josh', contact: v('r-contact'), products: '', outcome: pick === 'Not in' ? ('Not in. ' + note).trim() : note,
+    by: 'Josh', contact: [v('r-contact'), v('r-phone'), v('r-email')].filter(Boolean).join(' '), products: '', outcome: pick === 'Not in' ? ('Not in. ' + note).trim() : note,
     bottles: pick === 'Order' ? (+v('r-bottles') || '') : '', next: v('r-next') || (fu ? 'Follow up' : ''), fu });
   store.set('vr_log', LOG);
+  saveContact(l, v('r-contact'), v('r-phone'), v('r-email'));
   if (pick !== 'Not in') {   // update the map status on this device
     const st = pick === 'Order' ? 'stockist' : (l.st === 'stockist' ? 'stockist' : 'contacted');
     const stamp = dmy(today()).slice(0,5) + ' ' + pick + (note ? ': ' + note : '');
@@ -580,6 +586,8 @@ function showSummary() {
     </div>
     <button class="bigbtn next" onclick="copyRows()">Copy rows for the Activity Log</button>
     <button class="bigbtn ghost" onclick="downloadRows()">Download as CSV</button>
+    <button class="bigbtn ghost" onclick="saveVcf(true)">Save today's contacts to my phone</button>
+    <button class="bigbtn ghost" onclick="contactsCsv()">Download all contacts (CSV)</button>
     ${RUN && RUN.idx < RUN.ids.length ? '<button class="bigbtn ghost" onclick="renderStop()">Back to the run</button>' : ''}
     <button class="bigbtn ghost" onclick="endRun()">End run and clear today's plan</button>
     <div id="copied" style="color:var(--a);font-size:13px;text-align:center"></div>`;
@@ -644,6 +652,7 @@ function evText(x) {
   const last = [...LOG].reverse().find(e => e.vid === vidOf(x.l));
   return `${x.l.cat}${x.l.cap ? ', ' + x.l.cap + ' patrons' : ''}. Priority ${pri(x.l)}.\n${pt.stage}: ${pt.line} Ask: ${pt.q}${pt.next ? '\nNext step from last time: ' + pt.next : ''}${pt.tips.length ? '\n' + pt.tips.join(' ') : ''}` +
     (last ? `\nLast visit ${dmy(last.date)}: ${last.act}. ${last.outcome || ''}` : '') + (x.l.note ? `\nNote: ${x.l.note}` : '') +
+    contactsOf(x.l).map(c => `\nContact: ${c.name}${c.phone ? ' ' + c.phone : ''}`).join('') +
     `\nLog the visit: ${location.href.split('#')[0].split('?')[0]}`;
 }
 const evTitle = x => `${x.i + 1}. ${x.l.n}`;
@@ -690,6 +699,51 @@ function fupsHtml() {
 function lastVisit(l) {
   const e = [...LOG].reverse().find(x => x.vid === vidOf(l));
   return e ? `<div class="last">Last: ${dmy(e.date)} · ${esc(e.act)}${e.fu ? ' · follow up ' + dmy(e.fu) : ''}</div>` : '';
+}
+
+// ---------- Contacts: names and numbers per venue, call or text in one tap, save to the phone's contacts ----------
+let CONTACTS = store.get('vr_contacts', {});   // venue id -> [{ name, phone, email, updated }], newest first
+const telOf = ph => (ph || '').replace(/[^\d+]/g, '');
+function contactsOf(l) { return CONTACTS[vidOf(l)] || []; }
+function saveContact(l, name, phone, email) {
+  if (!name && !phone && !email) return;
+  const list = contactsOf(l).slice();
+  const i = list.findIndex(c => (name && c.name.toLowerCase() === name.toLowerCase()) || (phone && telOf(c.phone) === telOf(phone)));
+  const c = { ...(i >= 0 ? list[i] : {}), name: name || (i >= 0 ? list[i].name : ''), phone: phone || (i >= 0 ? list[i].phone : ''),
+              email: email || (i >= 0 ? list[i].email : ''), venue: l.n, address: l.a || '', updated: today() };
+  if (i >= 0) list.splice(i, 1);
+  list.unshift(c); CONTACTS[vidOf(l)] = list; store.set('vr_contacts', CONTACTS);
+}
+function contactsHtml(l) {
+  const cs = contactsOf(l); if (!cs.length) return `<h4>Contact</h4><div class="hint" style="font-size:13px"><a href="https://www.google.com/search?q=${encodeURIComponent(l.n + ' ' + (l.sub || '') + ' phone')}" target="_blank" rel="noopener" style="color:var(--b)">Look up their phone number</a></div>`;
+  return `<h4>Contacts</h4>` + cs.map((c, i) => `<div class="hist" style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+    <span style="flex:1;min-width:120px"><b>${esc(c.name || 'Contact')}</b><small>${esc(c.phone || '')}${c.email ? ' · ' + esc(c.email) : ''}</small></span>
+    ${c.phone ? `<a class="link-btn" href="tel:${telOf(c.phone)}">Call</a><a class="link-btn" href="sms:${telOf(c.phone)}">Text</a>` : ''}
+    <button class="link-btn" onclick="saveVcfOne('${jsId(vidOf(l))}', ${i})">Save to phone</button></div>`).join('');
+}
+function callLine(l) {
+  const c = contactsOf(l)[0]; if (!c || !c.phone) return '';
+  return `<div class="last"><a href="tel:${telOf(c.phone)}" style="color:#9fe0c0">Call ${esc(c.name || '')} ${esc(c.phone)}</a></div>`;
+}
+function vcard(c) {
+  const e = t => String(t || '').replace(/\\/g, '\\\\').replace(/;/g, '\;').replace(/,/g, '\\,').replace(/\n/g, '\\n');
+  const role = ((c.name || '').match(/\(([^)]*)\)/) || [])[1] || '', nm = (c.name || '').replace(/\([^)]*\)/g, '').replace(/,\s*$/, '').trim() || 'Contact';
+  const parts = nm.split(/\s+/), first = parts[0] || '', last = parts.slice(1).join(' ');
+  return ['BEGIN:VCARD', 'VERSION:3.0', `N:${e(last)};${e(first)};;;`, `FN:${e(nm + ' (' + c.venue + ')')}`, `ORG:${e(c.venue)}`, role ? `TITLE:${e(role)}` : '',
+    c.phone ? `TEL;TYPE=CELL:${c.phone}` : '', c.email ? `EMAIL;TYPE=WORK:${c.email}` : '', c.address ? `ADR;TYPE=WORK:;;${e(c.address)};;;;` : '',
+    `NOTE:${e('Via Nova venue contact. Added ' + dmy(c.updated))}`, 'END:VCARD'].filter(Boolean).join('\r\n');
+}
+function dlText(txt, name, type) { const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([txt], { type })); a.download = name; a.click(); }
+function saveVcfOne(vid, i) { const c = (CONTACTS[vid] || [])[i]; if (c) dlText(vcard(c), (c.name || 'contact').replace(/\W+/g, '-') + '.vcf', 'text/vcard'); }
+function saveVcf(todayOnly) {
+  const all = Object.values(CONTACTS).flat().filter(c => !todayOnly || c.updated === today());
+  if (!all.length) { alert('No contacts saved ' + (todayOnly ? 'today' : 'yet') + '.'); return; }
+  dlText(all.map(vcard).join('\r\n'), 'via-nova-contacts-' + today() + '.vcf', 'text/vcard');
+}
+function contactsCsv() {
+  const rows = [['Venue ID','Venue','Address','Name','Mobile','Email','Last updated']];
+  Object.entries(CONTACTS).forEach(([vid, cs]) => cs.forEach(c => rows.push([vid, c.venue, c.address, c.name, c.phone, c.email, dmy(c.updated)])));
+  dlText('\ufeff' + rows.map(r => r.map(x => '"' + String(x || '').replace(/"/g, '""') + '"').join(',')).join('\n'), 'via-nova-contacts.csv', 'text/csv');
 }
 
 // ---------- Go ----------
