@@ -2465,7 +2465,7 @@
   "vid": "36091229",
   "region": "Geelong & surrounds",
   "zone": "Mon - Geelong CBD & West",
-  "sub": "Geelong North",
+  "sub": "North Geelong",
   "tier": "B"
  },
  {
@@ -2482,7 +2482,7 @@
   "vid": "32104460",
   "region": "Geelong & surrounds",
   "zone": "Mon - Geelong CBD & West",
-  "sub": "Geelong North",
+  "sub": "North Geelong",
   "tier": "B"
  },
  {
@@ -3429,7 +3429,7 @@
   "vid": "31900732",
   "region": "Geelong & surrounds",
   "zone": "Mon - Geelong CBD & West",
-  "sub": "Geelong South",
+  "sub": "South Geelong",
   "tier": "B"
  },
  {
@@ -3496,7 +3496,7 @@
   "vid": "31452721",
   "region": "Geelong & surrounds",
   "zone": "Thu - Highton, Belmont & South",
-  "sub": "Conawarre",
+  "sub": "Connewarre",
   "tier": "B"
  },
  {
@@ -4380,7 +4380,7 @@
   "vid": "32121373",
   "region": "Geelong & surrounds",
   "zone": "Mon - Geelong CBD & West",
-  "sub": "Geelong North",
+  "sub": "North Geelong",
   "tier": "A"
  },
  {
@@ -4479,7 +4479,7 @@
   "vid": "32804727",
   "region": "Geelong & surrounds",
   "zone": "Mon - Geelong CBD & West",
-  "sub": "",
+  "sub": "South Geelong",
   "tier": "C"
  },
  {
@@ -5535,8 +5535,8 @@
   "cap": 89,
   "lno": "32236322",
   "vid": "32236322",
-  "region": "Geelong & surrounds",
-  "zone": "Wed - Bellarine",
+  "region": "Melbourne",
+  "zone": "",
   "sub": "Blairgowrie",
   "tier": "A"
  },
@@ -5551,8 +5551,8 @@
   "src": "lcv",
   "lno": "32005501",
   "vid": "32005501",
-  "region": "Geelong & surrounds",
-  "zone": "Wed - Bellarine",
+  "region": "Melbourne",
+  "zone": "",
   "sub": "Blairgowrie",
   "tier": "C"
  },
@@ -5568,8 +5568,8 @@
   "cap": 400,
   "lno": "32122874",
   "vid": "32122874",
-  "region": "Geelong & surrounds",
-  "zone": "Wed - Bellarine",
+  "region": "Melbourne",
+  "zone": "",
   "sub": "Blairgowrie",
   "tier": "B"
  },
@@ -5800,7 +5800,7 @@
   "lno": "32336025",
   "vid": "32336025",
   "region": "Melbourne",
-  "zone": "Monthly - Ballarat & Daylesford",
+  "zone": "",
   "sub": "Yarraville",
   "tier": "C"
  },
@@ -6730,7 +6730,7 @@
   "vid": "32003313",
   "region": "Geelong & surrounds",
   "zone": "Mon - Geelong CBD & West",
-  "sub": "Geelong North",
+  "sub": "North Geelong",
   "tier": "A"
  },
  {
@@ -6811,7 +6811,7 @@
   "lno": "32073083",
   "vid": "32073083",
   "region": "Melbourne",
-  "zone": "Monthly - Ballarat & Daylesford",
+  "zone": "",
   "sub": "Braybrook",
   "tier": "A"
  },
@@ -8059,7 +8059,7 @@
   "lno": "32324793",
   "vid": "32324793",
   "region": "Melbourne",
-  "zone": "Monthly - Ballarat & Daylesford",
+  "zone": "",
   "sub": "Yarraville",
   "tier": "C"
  },
@@ -8823,7 +8823,7 @@
   "lno": "31956220",
   "vid": "31956220",
   "region": "Melbourne",
-  "zone": "Monthly - Ballarat & Daylesford",
+  "zone": "",
   "sub": "Deer Park",
   "tier": "A"
  },
@@ -11131,7 +11131,7 @@
   "vid": "31412179",
   "region": "Geelong & surrounds",
   "zone": "Mon - Geelong CBD & West",
-  "sub": "Geelong South",
+  "sub": "South Geelong",
   "tier": "B"
  },
  {
@@ -13997,7 +13997,7 @@
   "vid": "31412307",
   "region": "Geelong & surrounds",
   "zone": "Mon - Geelong CBD & West",
-  "sub": "Geelong East",
+  "sub": "East Geelong",
   "tier": "B"
  },
  {
@@ -17080,7 +17080,7 @@
   "vid": "32222925",
   "region": "Geelong & surrounds",
   "zone": "Thu - Highton, Belmont & South",
-  "sub": "Geelong South",
+  "sub": "South Geelong",
   "tier": "B"
  },
  {
@@ -17375,7 +17375,7 @@
   "vid": "36103385",
   "region": "Geelong & surrounds",
   "zone": "Mon - Geelong CBD & West",
-  "sub": "Geelong North",
+  "sub": "North Geelong",
   "tier": "B"
  },
  {
@@ -25657,7 +25657,7 @@
   "vid": "32221636",
   "region": "Geelong & surrounds",
   "zone": "Wed - Bellarine",
-  "sub": "Queenscliffe",
+  "sub": "Queenscliff",
   "tier": "B"
  },
  {
@@ -29632,7 +29632,7 @@
   "lno": "31958905",
   "vid": "31958905",
   "region": "Melbourne",
-  "zone": "Monthly - Ballarat & Daylesford",
+  "zone": "",
   "sub": "Yarraville",
   "tier": "B"
  },
@@ -31145,7 +31145,7 @@
   "vid": "36104234",
   "region": "Geelong & surrounds",
   "zone": "Mon - Geelong CBD & West",
-  "sub": "Geelong North",
+  "sub": "North Geelong",
   "tier": "B"
  },
  {
@@ -31362,7 +31362,7 @@
   "vid": "32054788",
   "region": "Geelong & surrounds",
   "zone": "Mon - Geelong CBD & West",
-  "sub": "Geelong North",
+  "sub": "North Geelong",
   "tier": "B"
  },
  {
@@ -33526,7 +33526,7 @@
   "lno": "32335906",
   "vid": "32335906",
   "region": "Melbourne",
-  "zone": "Monthly - Ballarat & Daylesford",
+  "zone": "",
   "sub": "Yarraville",
   "tier": "C"
  },
@@ -34993,7 +34993,7 @@
   "lno": "31911709",
   "vid": "31911709",
   "region": "Melbourne",
-  "zone": "Monthly - Ballarat & Daylesford",
+  "zone": "",
   "sub": "Yarraville",
   "tier": "B"
  },
@@ -38048,7 +38048,7 @@
   "vid": "36071627",
   "region": "Geelong & surrounds",
   "zone": "Mon - Geelong CBD & West",
-  "sub": "Geelong North",
+  "sub": "North Geelong",
   "tier": "C"
  },
  {
@@ -39087,8 +39087,8 @@
   "src": "lcv",
   "lno": "32051015",
   "vid": "32051015",
-  "region": "Geelong & surrounds",
-  "zone": "Wed - Bellarine",
+  "region": "Melbourne",
+  "zone": "",
   "sub": "Sorrento",
   "tier": "A"
  },
@@ -39104,8 +39104,8 @@
   "cap": 580,
   "lno": "32100945",
   "vid": "32100945",
-  "region": "Geelong & surrounds",
-  "zone": "Wed - Bellarine",
+  "region": "Melbourne",
+  "zone": "",
   "sub": "Sorrento",
   "tier": "A"
  },
@@ -39121,8 +39121,8 @@
   "cap": 2201,
   "lno": "31913701",
   "vid": "31913701",
-  "region": "Geelong & surrounds",
-  "zone": "Wed - Bellarine",
+  "region": "Melbourne",
+  "zone": "",
   "sub": "Sorrento",
   "tier": "B"
  },
@@ -39137,8 +39137,8 @@
   "src": "lcv",
   "lno": "36115366",
   "vid": "36115366",
-  "region": "Geelong & surrounds",
-  "zone": "Wed - Bellarine",
+  "region": "Melbourne",
+  "zone": "",
   "sub": "Sorrento",
   "tier": "B"
  },
@@ -39154,8 +39154,8 @@
   "cap": 506,
   "lno": "32150005",
   "vid": "32150005",
-  "region": "Geelong & surrounds",
-  "zone": "Wed - Bellarine",
+  "region": "Melbourne",
+  "zone": "",
   "sub": "Sorrento",
   "tier": "A"
  },
@@ -39452,7 +39452,7 @@
   "vid": "31916987",
   "region": "Geelong & surrounds",
   "zone": "Mon - Geelong CBD & West",
-  "sub": "Geelong North",
+  "sub": "North Geelong",
   "tier": "B"
  },
  {
@@ -39788,7 +39788,7 @@
   "vid": "32106195",
   "region": "Geelong & surrounds",
   "zone": "Thu - Highton, Belmont & South",
-  "sub": "Geelong East",
+  "sub": "East Geelong",
   "tier": "B"
  },
  {
@@ -40451,8 +40451,8 @@
   "src": "lcv",
   "lno": "32001303",
   "vid": "32001303",
-  "region": "Geelong & surrounds",
-  "zone": "Wed - Bellarine",
+  "region": "Melbourne",
+  "zone": "",
   "sub": "Sorrento",
   "tier": "A"
  },
@@ -40618,7 +40618,7 @@
   "lno": "36074730",
   "vid": "36074730",
   "region": "Melbourne",
-  "zone": "Monthly - Ballarat & Daylesford",
+  "zone": "",
   "sub": "Yarraville",
   "tier": "C"
  },
@@ -41591,7 +41591,7 @@
   "vid": "32280046",
   "region": "Geelong & surrounds",
   "zone": "Mon - Geelong CBD & West",
-  "sub": "Geelong South",
+  "sub": "South Geelong",
   "tier": "B"
  },
  {
@@ -41777,7 +41777,7 @@
   "vid": "32239964",
   "region": "Geelong & surrounds",
   "zone": "Mon - Geelong CBD & West",
-  "sub": "Geelong North",
+  "sub": "North Geelong",
   "tier": "A"
  },
  {
@@ -42012,7 +42012,7 @@
   "vid": "36088624",
   "region": "Geelong & surrounds",
   "zone": "Wed - Bellarine",
-  "sub": "",
+  "sub": "Queenscliff",
   "tier": "B"
  },
  {
@@ -44530,8 +44530,8 @@
   "cap": 1500,
   "lno": "31910622",
   "vid": "31910622",
-  "region": "Geelong & surrounds",
-  "zone": "Wed - Bellarine",
+  "region": "Melbourne",
+  "zone": "",
   "sub": "Portsea",
   "tier": "B"
  },
@@ -45849,7 +45849,7 @@
   "vid": "32106179",
   "region": "Geelong & surrounds",
   "zone": "Mon - Geelong CBD & West",
-  "sub": "Geelong East",
+  "sub": "East Geelong",
   "tier": "B"
  },
  {
@@ -46937,7 +46937,7 @@
   "lno": "32375752",
   "vid": "32375752",
   "region": "Melbourne",
-  "zone": "Monthly - Ballarat & Daylesford",
+  "zone": "",
   "sub": "Yarraville",
   "tier": "C"
  },
@@ -46953,7 +46953,7 @@
   "lno": "32059144",
   "vid": "32059144",
   "region": "Melbourne",
-  "zone": "Monthly - Ballarat & Daylesford",
+  "zone": "",
   "sub": "Footscray",
   "tier": "A"
  },
