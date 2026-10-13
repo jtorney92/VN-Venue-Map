@@ -363,7 +363,14 @@ async function findVenues(sub, querySet) {
           'X-Goog-FieldMask':'places.id,places.displayName,places.formattedAddress,places.location,places.nationalPhoneNumber,places.websiteUri,places.primaryTypeDisplayName,places.businessStatus' },
         body: JSON.stringify({ textQuery: q + (sub ? ' ' + sub.name : '') + ' Victoria', locationRestriction:{ rectangle:rect }, maxResultCount:20 }),
       });
-      if (!r.ok) { if (r.status === 403) throw new Error('Google key rejected (it only works on the published site)'); continue; }
+      if (!r.ok) {
+        if (r.status === 403 || r.status === 400) {
+          let reason = '';
+          try { const ej = await r.json(); reason = (ej.error && (ej.error.message || ej.error.status)) || ''; } catch(e) {}
+          throw new Error('Google rejected the search (' + r.status + '): ' + (reason || 'no reason given'));
+        }
+        continue;
+      }
       const j = await r.json();
       (j.places || []).forEach(p => {
         if (seen.has(p.id) || !p.location) return;
