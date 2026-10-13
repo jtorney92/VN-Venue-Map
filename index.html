@@ -137,7 +137,9 @@ const GIFTING_QUERIES = [
   ['law firm', 'Corporate / Gifting'], ['builder', 'Corporate / Gifting'], ['financial planner', 'Corporate / Gifting'],
   ['event planner', 'Corporate / Gifting'], ['conference organiser', 'Corporate / Gifting'], ['corporate gift', 'Corporate / Gifting'],
 ];
-const SKIP_CHAINS = /\b(mcdonald|kfc|subway|hungry jack|domino|pizza hut|red rooster|oporto|nando|guzman|zambrero|boost juice|starbucks|gloria jean|7-eleven|woolworths|coles supermarket|aldi|costco)\b/i;
+const SKIP_CHAINS = /\b(mcdonald'?s?|kfc|subway|hungry jack'?s?|domino'?s|pizza hut|red rooster|oporto|nando'?s|guzman y gomez|gyg|zambrero|mad mex|taco bell|carl'?s jr|wendy'?s|burger king|popeyes|schnitz|lord of the fries|grill'?d|betty'?s burgers|el jannah|ogalo|chicken treat|crust pizza|pizza capers|eagle boys|noodle box|roll'?d|sushi hub|sushi sushi|boost juice|starbucks|gloria jean'?s|muffin break|michel'?s|bakers delight|brumby'?s|donut king|krispy kreme|chatime|gong cha|7-eleven|woolworths|coles supermarket|aldi|costco|fish (and|&|n) chips?|fish ?n ?chips|chippy|kebab|takeaway|take away)\b/i;
+// Google business types that won't stock spirits, skipped whatever the business is called
+const SKIP_TYPES = new Set(['fast_food_restaurant','meal_takeaway','meal_delivery','sandwich_shop','donut_shop','juice_shop','ice_cream_shop','bagel_shop','bakery','dessert_shop','convenience_store','gas_station']);
 
 // ---------- State ----------
 let BASE = [];                 // from locations.json
@@ -360,7 +362,7 @@ async function findVenues(sub, querySet) {
       const r = await fetch('https://places.googleapis.com/v1/places:searchText', {
         method:'POST',
         headers:{ 'Content-Type':'application/json', 'X-Goog-Api-Key':GOOGLE_KEY,
-          'X-Goog-FieldMask':'places.id,places.displayName,places.formattedAddress,places.location,places.nationalPhoneNumber,places.websiteUri,places.primaryTypeDisplayName,places.businessStatus' },
+          'X-Goog-FieldMask':'places.id,places.displayName,places.formattedAddress,places.location,places.nationalPhoneNumber,places.websiteUri,places.primaryType,places.primaryTypeDisplayName,places.businessStatus' },
         body: JSON.stringify({ textQuery: q + (sub ? ' ' + sub.name : '') + ' Victoria', locationRestriction:{ rectangle:rect }, maxResultCount:20 }),
       });
       if (!r.ok) {
@@ -377,6 +379,7 @@ async function findVenues(sub, querySet) {
         if (p.businessStatus && p.businessStatus !== 'OPERATIONAL') return;
         const name = p.displayName ? p.displayName.text : '';
         if (!name || SKIP_CHAINS.test(name)) return;
+        if (p.primaryType && SKIP_TYPES.has(p.primaryType)) return;
         seen.add(p.id);
         results.push({ n:name, a:(p.formattedAddress||'').replace(', Australia',''), lat:p.location.latitude, lng:p.location.longitude,
           cat, gtype:p.primaryTypeDisplayName ? p.primaryTypeDisplayName.text : '', phone:p.nationalPhoneNumber||'', web:p.websiteUri||'' });
