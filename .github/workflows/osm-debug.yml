@@ -1,0 +1,25 @@
+# Temporary: saves a sample of OpenStreetMap places near venues to the osm-debug branch for tuning.
+name: OSM sample (temporary)
+on:
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  sample:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python tools/osm_hours.py --dry-run --dump /tmp/osm_sample.json
+      - run: |
+          git config user.name "Josh Torney"
+          git config user.email "jtorney92@users.noreply.github.com"
+          git checkout --orphan osm-debug
+          git rm -rfq .
+          cp /tmp/osm_sample.json .
+          git add osm_sample.json
+          git commit -qm "OSM sample"
+          git push -f origin osm-debug
