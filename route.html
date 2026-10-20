@@ -115,8 +115,23 @@ button { font-family:inherit; }
   #list { width:100%; min-width:0; border-right:none; min-height:auto; }
   #groups { overflow:visible; padding-bottom:calc(110px + env(safe-area-inset-bottom)); }
   #plan { left:10px; right:10px; bottom:calc(10px + env(safe-area-inset-bottom)); }
-  #plan .txt { flex:1; }
+  #plan { flex-wrap:wrap; gap:6px 8px; padding:10px; }
+  #plan .txt { flex:1 1 100%; }
+  #plan .txt small { display:inline; margin-left:6px; }
+  #plan button, #plan a { flex:1 1 auto; text-align:center; padding:9px 8px; }
+  #toast { bottom:calc(150px + env(safe-area-inset-bottom)); }
 }
+
+/* quick picking */
+.sugg { display:flex; gap:6px; align-items:center; margin-top:8px; flex-wrap:wrap; }
+.sugg select { padding:6px 8px; border-radius:6px; border:1px solid var(--line); background:var(--bg); color:var(--ink); font-size:13px; }
+.sugg .go { padding:7px 12px; border-radius:6px; border:none; background:var(--accent); color:#fff; font-weight:700; font-size:13px; cursor:pointer; }
+.sugg .ghost2 { padding:7px 10px; border-radius:6px; border:1px solid var(--line); background:var(--panel2); color:var(--ink); font-size:12px; cursor:pointer; }
+.addall { font-size:11px; padding:3px 8px; border-radius:10px; border:1px solid var(--line); background:var(--panel2); color:var(--ink); cursor:pointer; white-space:nowrap; }
+.addall:hover { border-color:var(--accent); }
+.why { font-size:11px; color:var(--gold); margin-top:3px; }
+#toast { position:fixed; left:50%; transform:translateX(-50%); bottom:calc(90px + env(safe-area-inset-bottom)); z-index:6000; background:var(--ink); color:var(--bg); padding:9px 14px; border-radius:8px; font-size:13px; font-weight:600; max-width:90vw; display:none; box-shadow:0 6px 24px rgba(0,0,0,.4); }
+#toast.show { display:block; }
 
 /* run mode */
 #run { position:fixed; top:0; left:0; right:0; height:100vh; height:100dvh; z-index:5000; background:var(--bg); display:none; flex-direction:column; }
@@ -175,6 +190,7 @@ button { font-family:inherit; }
   </div>
   <div id="map"></div>
 </div>
+<div id="toast"></div>
 <div id="plan">
   <div class="txt"><b id="plan-n">0 stops</b><small id="plan-sub"></small></div>
   <button class="go" onclick="startRun()">Start run</button>
@@ -268,7 +284,9 @@ function pickDay(k) { day = k; store.set('vr_day', k); shut.clear(); renderAll(t
 // ---------- Filters ----------
 function renderFilters(v) {
   const d = DAYS.find(x => x.key === day);
-  document.getElementById('dayhead').innerHTML = `<h2>${d.d === 'Monthly' ? 'Monthly run' : d.d}: ${d.ar}</h2><p>Suburbs in driving order from the distillery. Tick venues to build today's route.</p>`;
+  document.getElementById('dayhead').innerHTML = `<h2>${d.d === 'Monthly' ? 'Monthly run' : d.d}: ${d.ar}</h2><p>Suburbs in driving order from the distillery. Let it suggest a run, add a whole suburb, tap pins on the map, or tick venues one by one.</p>
+    <div class="sugg"><select id="sg-n" aria-label="Number of stops">${[6,8,10,12,15].map(n => `<option value="${n}" ${n === (+store.get('vr_sg_n', 10)) ? 'selected' : ''}>${n} stops</option>`).join('')}</select>
+    <button class="go" onclick="suggestRun()">Suggest a run</button>${PLAN.length ? '<button class="ghost2" onclick="clearPlan()">Clear picks</button>' : ''}</div>`;
   document.getElementById('pri').innerHTML = ['Stockist','A','B','C'].map(k => {
     const c = v.filter(l => pri(l) === k).length;
     return `<button class="chip ${showPri.has(k) ? '' : 'off'}" onclick="togglePri('${k}')"><span class="dot" style="background:${PRI[k]}"></span>${k === 'Stockist' ? 'Stockists' : 'Priority ' + k} <span style="color:var(--muted)">${c}</span></button>`;
@@ -319,7 +337,8 @@ function renderList() {
     <div class="grp ${shut.has(g.name) ? 'shut' : ''}" id="g${gi}">
       <div class="gh" onclick="toggleGroup('${esc(g.name).replace(/'/g, "\\'")}', ${gi})">
         <div class="stop">${gi + 1}</div><div class="nm">${esc(g.name)}</div>
-        <div class="ct">${g.ls.length} venue${g.ls.length === 1 ? '' : 's'}${dist(gi)}</div><div class="car">&#9660;</div>
+        <div class="ct">${g.ls.length} venue${g.ls.length === 1 ? '' : 's'}${dist(gi)}</div>
+        <button class="addall" onclick="event.stopPropagation();addGroup(${gi})">${g.ls.every(l => PLAN.includes(l.id)) ? 'Remove all' : '+ Add all'}</button><div class="car">&#9660;</div>
       </div>
       <div class="rows">${g.ls.map(rowHtml).join('')}</div>
     </div>`).join('');
@@ -336,7 +355,7 @@ function rowHtml(l) {
     <div>
       <div class="t" onclick="fly('${jsId(l.id)}')">${esc(l.n)}</div>
       <div class="s">${esc(l.cat)}${l.cap ? ' · ' + l.cap + ' patrons' : ''} · ${esc(l.a || '')}</div>
-      ${l.note ? `<div class="note">${esc(l.note)}</div>` : ''}${lastVisit(l)}${callLine(l)}${bestLine(l)}
+      ${SUGG[l.id] && picked ? `<div class="why">Suggested: ${esc(SUGG[l.id])}</div>` : ''}${l.note ? `<div class="note">${esc(l.note)}</div>` : ''}${lastVisit(l)}${callLine(l)}${bestLine(l)}
       <div class="acts">
         <button class="${l.st === 'contacted' ? 'on' : ''}" onclick="setSt('${jsId(l.id)}','contacted')">Contacted</button>
         <button class="${l.st === 'stockist' ? 'on gold' : ''}" onclick="setSt('${jsId(l.id)}','stockist')">Stockist</button>
@@ -367,7 +386,71 @@ function togglePlan(id) {
   else PLAN.push(id);
   store.set('vr_plan', PLAN); renderPlan(); drawMap(false);
 }
-function clearPlan() { PLAN = []; store.set('vr_plan', PLAN); renderPlan(); renderList(); drawMap(false); }
+function planFromMap(id) { togglePlan(id); renderList(); renderFilters(ALL.filter(l => l.zone === day)); }
+function toast(msg) { const t = document.getElementById('toast'); t.textContent = msg; t.classList.add('show'); clearTimeout(toast.h); toast.h = setTimeout(() => t.classList.remove('show'), 3500); }
+
+// Add or remove a whole suburb in one tap (only the venues showing under the current filters)
+function addGroup(gi) {
+  const g = groups[gi]; if (!g) return;
+  if (g.ls.every(l => PLAN.includes(l.id))) { PLAN = PLAN.filter(id => !g.ls.some(l => l.id === id)); toast('Removed ' + g.name); }
+  else {
+    const room = MAX_STOPS - PLAN.length, add = g.ls.filter(l => !PLAN.includes(l.id));
+    if (room <= 0) { toast(MAX_STOPS + ' stops is a full day. Clear some first.'); return; }
+    PLAN.push(...add.slice(0, room).map(l => l.id));
+    toast(add.length > room ? `Added ${room} of ${add.length} from ${g.name}: that's a full day` : `Added ${add.length} from ${g.name}`);
+  }
+  store.set('vr_plan', PLAN); renderPlan(); renderList(); renderFilters(ALL.filter(l => l.zone === day)); drawMap(false);
+}
+
+// Suggest a run: what's due first (follow-ups, reorders, venues ready to order), then the best new venues,
+// kept close together so the day is a tight loop instead of a zigzag.
+let SUGG = {};
+function suggestRun() {
+  const n = +document.getElementById('sg-n').value || 10; store.set('vr_sg_n', n);
+  const fu = new Set(dueFollowUps().map(e => e.vid)), ro = new Set(reordersDue().map(x => vidOf(x.l)));
+  const lastSeen = l => { const d = LOG.filter(e => e.vid === vidOf(l)).map(e => e.date).sort(); return d[d.length - 1] || ''; };
+  const recent = plusDays(-14);
+  const cands = current().map(l => {
+    const v = vidOf(l), seen = lastSeen(l), pt = pitchFor(l);
+    let score = 0, why = '';
+    if (fu.has(v)) { score = 100; why = 'follow-up due'; }
+    else if (ro.has(v)) { score = 85; why = 'reorder due'; }
+    else if (pt.stage.startsWith('Tasted')) { score = 75; why = 'tasted, ready to order'; }
+    else if (seen && seen >= recent) return null;   // seen in the last fortnight and nothing due
+    else if (pt.stage === 'Missed last time') { score = 55; why = 'missed last time'; }
+    else if (pri(l) === 'Stockist') { score = 45; why = 'stockist check-in'; }
+    else if (pri(l) === 'A') { score = seen ? 40 : 50; why = seen ? 'priority A, follow up' : 'new priority A'; }
+    else if (pri(l) === 'B') { score = seen ? 22 : 30; why = seen ? 'priority B, follow up' : 'new priority B'; }
+    else { score = 8; why = 'priority C'; }
+    score += ({ 'Bottle shop': 12, 'Bar': 10, 'Pub / Hotel': 7, 'Club': 5, 'Restaurant / Cafe': 3, 'Accommodation': 3, 'Gift / Retail': 3 })[l.cat] || 0;
+    if (/estate|vineyard|winery|wines\b|cellar door|ferries/i.test(l.n) && !/cellars|liquor|bottle/i.test(l.n)) score -= 12;   // wineries and transport: slow movers for spirits
+    score += Math.min(+l.cap || 0, 500) / 100;
+    if (clashes(l, 0, null).length) score -= 35;   // best-time note says not today
+    return { l, score, why };
+  }).filter(Boolean);
+  if (!cands.length) { toast('Nothing to suggest with these filters. Switch on more priorities or types.'); return; }
+  // anything due goes in first (follow-ups, reorders, tasted and ready to order), then the rest fill in around them
+  const pool = cands.slice().sort((a, b) => b.score - a.score);
+  const picked = pool.filter(c => c.score >= 75).slice(0, n);
+  picked.forEach(c => pool.splice(pool.indexOf(c), 1));
+  while (picked.length < n && pool.length) {
+    let best = null, bestVal = -1e9;
+    // stay close to what's already picked and to the middle of the day, so it grows one way instead of two
+    const mid = picked.length ? [picked.reduce((t, x) => t + +x.l.lat, 0) / picked.length, picked.reduce((t, x) => t + +x.l.lng, 0) / picked.length] : null;
+    pool.forEach(c => {
+      const p2 = [c.l.lat, c.l.lng];
+      const near = picked.length ? Math.min(...picked.map(x => km([x.l.lat, x.l.lng], p2))) : km(BASE_PT, p2) / 4;
+      const val = c.score - 2 * near - (mid ? 2 * km(mid, p2) : 0);
+      if (val > bestVal) { bestVal = val; best = c; }
+    });
+    picked.push(best); pool.splice(pool.indexOf(best), 1);
+  }
+  PLAN = picked.map(c => c.l.id); SUGG = {}; picked.forEach(c => SUGG[c.l.id] = c.why);
+  store.set('vr_plan', PLAN); renderPlan(); renderList(); renderFilters(ALL.filter(l => l.zone === day)); drawMap(false);
+  const count = {}; picked.forEach(c => count[c.why] = (count[c.why] || 0) + 1);
+  toast(`Suggested ${picked.length}: ` + Object.entries(count).map(([k, v]) => v + ' ' + k).join(', '));
+}
+function clearPlan() { PLAN = []; SUGG = {}; store.set('vr_plan', PLAN); renderPlan(); renderList(); drawMap(false); renderFilters(ALL.filter(l => l.zone === day)); }
 function planStops() {
   const left = PLAN.map(id => ALL.find(l => l.id === id)).filter(Boolean), seq = [];
   let p = BASE_PT;
@@ -404,7 +487,9 @@ function drawMap(fit) {
       const p = pri(l), picked = PLAN.includes(l.id);
       const m = L.marker([l.lat, l.lng], { icon: L.divIcon({ className:'', iconSize:[22,22], iconAnchor:[11,11],
         html:`<div class="mk ${l.st === 'contacted' ? 'contacted' : ''} ${picked ? 'picked' : ''}" style="background:${PRI[p]}">${p === 'Stockist' ? '&#9733;' : p}</div>` }) })
-        .bindPopup(`<b>${esc(l.n)}</b><br>${esc(l.cat)} · ${p === 'Stockist' ? 'Stockist' : 'Priority ' + p}<br>${esc(l.a || '')}`)
+        .bindPopup(`<b>${esc(l.n)}</b><br>${esc(l.cat)} · ${p === 'Stockist' ? 'Stockist' : 'Priority ' + p}<br>${esc(l.a || '')}
+          <br><button style="margin-top:6px;padding:5px 10px;border-radius:5px;border:none;background:${picked ? '#555' : '#e94560'};color:#fff;font-weight:700;cursor:pointer"
+          onclick="map.closePopup();planFromMap('${jsId(l.id)}')">${picked ? 'Remove from today' : 'Add to today\'s run'}</button>`)
         .on('click', () => hl(l.id, true)).addTo(layer);
       markers[l.id] = m; all.push([l.lat, l.lng]);
     });
