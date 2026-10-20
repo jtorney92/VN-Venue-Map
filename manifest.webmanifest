@@ -1,0 +1,16 @@
+{
+  "name": "Via Nova Route Planner",
+  "short_name": "VN Routes",
+  "description": "Route days, the day's run with Waze, visit log, orders and follow-ups. Prepared by Josh Torney.",
+  "start_url": "route.html",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#14182b",
+  "theme_color": "#1b2140",
+  "icons": [
+    { "src": "icon-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "icon-512.png", "sizes": "512x512", "type": "image/png" },
+    { "src": "icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}

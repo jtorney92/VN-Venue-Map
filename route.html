@@ -6,6 +6,9 @@
 <meta name="robots" content="noindex, nofollow">
 <meta name="author" content="Josh Torney">
 <title>Route Planner</title>
+<link rel="manifest" href="manifest.webmanifest">
+<meta name="theme-color" content="#1b2140">
+<link rel="icon" href="icon-192.png">
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <style>
@@ -154,6 +157,7 @@ button { font-family:inherit; }
 <div id="top">
   <h1><span>&#9679;</span> Route Planner</h1>
   <div class="grow"></div>
+  <button class="link-btn" onclick="openMore()">More</button>
   <a class="link-btn" href="index.html">Open venue map</a>
 </div>
 <div id="week"></div>
@@ -174,6 +178,7 @@ button { font-family:inherit; }
   <div class="txt"><b id="plan-n">0 stops</b><small id="plan-sub"></small></div>
   <button class="go" onclick="startRun()">Start run</button>
   <button class="clr" onclick="openCal()">Calendar</button>
+  <button class="clr" onclick="openKit()">Kit</button>
   <a class="clr" id="plan-go" target="_blank" rel="noopener">Google Maps</a>
   <button class="clr" onclick="clearPlan()">Clear</button>
 </div>
@@ -202,7 +207,21 @@ const store = {
   get(k, d) { try { const v = localStorage.getItem(k); return v ? JSON.parse(v) : d; } catch(e) { return d; } },
   set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch(e) {} },
 };
-const idOf = l => (l.n + '|' + (+l.lat).toFixed(5) + '|' + (+l.lng).toFixed(5)).toLowerCase();
+const legacyId = l => (l.n + '|' + (+l.lat).toFixed(5) + '|' + (+l.lng).toFixed(5)).toLowerCase();
+const idOf = l => l.vid ? String(l.vid) : legacyId(l);   // venue ID (licence number) stays put when names or coordinates are tidied
+// Housekeeping: move edits saved under the old name-based keys onto venue IDs, and drop edits for venues no longer in the list
+function tidyEdits(list) {
+  const ids = new Set(list.map(idOf)), byLegacy = {};
+  list.forEach(l => { byLegacy[legacyId(l)] = idOf(l); });
+  let changed = false;
+  Object.keys(EDITS).forEach(k => {
+    if (ids.has(k)) return;
+    const to = byLegacy[k];
+    if (to && !EDITS[to]) EDITS[to] = EDITS[k];
+    delete EDITS[k]; changed = true;
+  });
+  return changed;
+}
 const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 function km(a, b) {
   const R = 6371, dLat = (b[0]-a[0])*Math.PI/180, dLng = (b[1]-a[1])*Math.PI/180;
@@ -219,6 +238,7 @@ let shut = new Set();
 
 function pri(l) { return l.st === 'stockist' ? 'Stockist' : (l.tier || 'C'); }
 function build(base) {
+  if (tidyEdits([...base, ...ADDED])) store.set('vm_edits', EDITS);
   ALL = [...base, ...ADDED].map(l => {
     const id = idOf(l), e = EDITS[id] || {};
     return { ...l, id, st: e.st || l.st || 'available', note: e.note != null ? e.note : (l.note || ''), cat: e.cat || l.cat || 'Other', tier: e.tier || l.tier || '' };
@@ -315,7 +335,7 @@ function rowHtml(l) {
     <div>
       <div class="t" onclick="fly('${jsId(l.id)}')">${esc(l.n)}</div>
       <div class="s">${esc(l.cat)}${l.cap ? ' · ' + l.cap + ' patrons' : ''} · ${esc(l.a || '')}</div>
-      ${l.note ? `<div class="note">${esc(l.note)}</div>` : ''}${lastVisit(l)}
+      ${l.note ? `<div class="note">${esc(l.note)}</div>` : ''}${lastVisit(l)}${callLine(l)}${bestLine(l)}
       <div class="acts">
         <button class="${l.st === 'contacted' ? 'on' : ''}" onclick="setSt('${jsId(l.id)}','contacted')">Contacted</button>
         <button class="${l.st === 'stockist' ? 'on gold' : ''}" onclick="setSt('${jsId(l.id)}','stockist')">Stockist</button>
@@ -461,7 +481,10 @@ function pitchFor(l) {
 
 function startRun() {
   const seq = planStops(); if (!seq.length) return;
-  RUN = { date: today(), ids: seq.map(l => l.id), idx: 0 }; store.set('vr_run', RUN); openRun();
+  RUN = { date: today(), ids: seq.map(l => l.id), idx: 0, estKm: Math.round(planKm() * 1.3) }; store.set('vr_run', RUN);
+  const odo = prompt('Odometer reading as you leave (optional, for the mileage log)', '');
+  if (odo && +odo) { MILES[today()] = { ...(MILES[today()] || {}), start: +odo }; store.set('vr_miles', MILES); }
+  openRun();
 }
 function openRun() { document.getElementById('run').classList.add('show'); renderStop(); }
 function closeRun() { document.getElementById('run').classList.remove('show'); renderAll(false); }
@@ -471,7 +494,7 @@ function renderStop() {
   const l = stopById(RUN.ids[RUN.idx]); if (!l) { RUN.idx++; store.set('vr_run', RUN); return renderStop(); }
   if (l.det) return renderDetour(l);
   pick = null;
-  const p = pri(l), pt = pitchFor(l);
+  const p = pri(l), pt = pitchFor(l), cs = contactsOf(l), lastC = cs[0];
   const hist = LOG.filter(e => e.vid === vidOf(l)).slice(-3).reverse();
   const nextL = stopById(RUN.ids[RUN.idx + 1]);
   document.getElementById('run-title').textContent = `Stop ${RUN.idx + 1} of ${RUN.ids.length}`;
@@ -483,14 +506,20 @@ function renderStop() {
       <div class="addr">${esc(l.cat)}${l.cap ? ' · ' + l.cap + ' patrons' : ''}<br>${esc(l.a || '')}</div>
       <h4>Pitch · ${esc(pt.stage)}</h4><div class="hint">${pt.next ? `Your next step from last time: <b>${esc(pt.next)}</b><br>` : ''}${esc(pt.line)}<br>Ask: "${esc(pt.q)}"</div>
       ${pt.tips.map(t => `<div class="hint" style="font-size:13px;color:var(--gold);margin-top:6px">${esc(t)}</div>`).join('')}
+      ${contactsHtml(l)}
+      ${bestHtml(l)}
       ${hist.length || l.note ? `<h4>Last time</h4>${hist.map(e => `<div class="hist"><small>${dmy(e.date)} · ${esc(e.act)}${e.contact ? ' · ' + esc(e.contact) : ''}</small>${esc(e.outcome || '')}</div>`).join('')}${l.note ? `<div class="hist"><small>Map note</small>${esc(l.note)}</div>` : ''}` : ''}
     </div>
     <a class="bigbtn waze" href="${waze(l)}">Drive here with Waze</a>
     <div class="card">
       <h4 style="margin-top:0">How did it go?</h4>
       <div class="opts">${OUTCOMES.map(o => `<button class="opt" onclick="choose(this,'${o}')">${o}</button>`).join('')}</div>
-      <input class="fld" id="r-contact" placeholder="Who you spoke to">
-      <input class="fld" id="r-bottles" type="number" inputmode="numeric" placeholder="Bottles ordered" style="display:none">
+      <input class="fld" id="r-contact" placeholder="Who you spoke to (e.g. Mick, owner)" value="${esc(lastC ? lastC.name : '')}">
+      <div class="row2">
+        <input class="fld" id="r-phone" type="tel" inputmode="tel" placeholder="Mobile" value="${esc(lastC ? lastC.phone : '')}">
+        <input class="fld" id="r-email" type="email" inputmode="email" placeholder="Email" value="${esc(lastC ? lastC.email : '')}">
+      </div>
+      <div id="r-order" style="display:none">${orderFormHtml()}</div>
       <textarea class="fld" id="r-note" rows="3" placeholder="What happened, what they liked, what to bring next time"></textarea>
       <div class="row2">
         <select class="fld" id="r-fu"><option value="">No follow-up</option><option value="7">Follow up in 1 week</option><option value="14">In 2 weeks</option><option value="28">In 4 weeks</option></select>
@@ -505,19 +534,22 @@ function renderStop() {
 }
 function choose(btn, o) {
   pick = o; document.querySelectorAll('.opt').forEach(b => b.classList.toggle('on', b === btn));
-  document.getElementById('r-bottles').style.display = o === 'Order' ? '' : 'none';
+  document.getElementById('r-order').style.display = o === 'Order' ? '' : 'none';
   document.getElementById('r-err').style.display = 'none';
 }
 function saveStop(go) {
-  if (!pick) { document.getElementById('r-err').style.display = ''; return; }
+  if (!pick) { document.getElementById('r-err').textContent = 'Pick how it went first.'; document.getElementById('r-err').style.display = ''; return; }
   const l = ALL.find(x => x.id === RUN.ids[RUN.idx]);
   const v = id => document.getElementById(id).value.trim();
   const fu = v('r-fu') ? plusDays(+v('r-fu')) : '';
   const note = v('r-note');
+  const ord = pick === 'Order' ? readOrder() : null;
+  if (pick === 'Order' && !ord.units) { document.getElementById('r-err').textContent = 'Add the products ordered first.'; document.getElementById('r-err').style.display = ''; return; }
   LOG.push({ date: today(), vid: vidOf(l), n: l.n, sub: l.sub || '', act: pick === 'Not in' ? 'Visit' : pick,
-    by: 'Josh', contact: v('r-contact'), products: '', outcome: pick === 'Not in' ? ('Not in. ' + note).trim() : note,
-    bottles: pick === 'Order' ? (+v('r-bottles') || '') : '', next: v('r-next') || (fu ? 'Follow up' : ''), fu });
+    by: SET.name || 'Josh', contact: [v('r-contact'), v('r-phone'), v('r-email')].filter(Boolean).join(' '), products: ord ? ord.text : '', val: ord ? ord.total : '', outcome: pick === 'Not in' ? ('Not in. ' + note).trim() : note,
+    bottles: ord ? ord.units : '', next: v('r-next') || (fu ? 'Follow up' : ''), fu });
   store.set('vr_log', LOG);
+  saveContact(l, v('r-contact'), v('r-phone'), v('r-email'));
   if (pick !== 'Not in') {   // update the map status on this device
     const st = pick === 'Order' ? 'stockist' : (l.st === 'stockist' ? 'stockist' : 'contacted');
     const stamp = dmy(today()).slice(0,5) + ' ' + pick + (note ? ': ' + note : '');
@@ -526,6 +558,7 @@ function saveStop(go) {
   }
   RUN.idx++; store.set('vr_run', RUN);
   const nextL = stopById(RUN.ids[RUN.idx]);
+  if (ord) return renderOrderSaved(LOG[LOG.length - 1], l);
   renderStop(); window.scrollTo(0, 0); document.getElementById('run-body').scrollTop = 0;
   if (go && nextL) window.location.href = waze(nextL);
 }
@@ -576,10 +609,13 @@ function showSummary() {
   document.getElementById('run-body').innerHTML = `
     <div class="card"><h2>${rows.length} stop${rows.length === 1 ? '' : 's'} logged today</h2>
       <div class="addr">Copy the rows, then paste into the first empty row of the Activity Log (column A).</div>
-      ${rows.map(e => `<div class="sumrow"><b>${esc(e.n)}</b> · ${esc(e.act)}${e.bottles ? ' · ' + e.bottles + ' bottles' : ''}<br><span style="color:var(--muted)">${esc(e.outcome || '')}${e.fu ? ' · follow up ' + dmy(e.fu) : ''}</span></div>`).join('')}
+      ${rows.map(e => `<div class="sumrow"><b>${esc(e.n)}</b> · ${esc(e.act)}${e.bottles ? ' · ' + e.bottles + ' units' : ''}${e.val ? ' · $' + e.val : ''}<br><span style="color:var(--muted)">${esc(e.outcome || '')}${e.fu ? ' · follow up ' + dmy(e.fu) : ''}</span></div>`).join('')}
     </div>
+    ${milesCardHtml()}
     <button class="bigbtn next" onclick="copyRows()">Copy rows for the Activity Log</button>
     <button class="bigbtn ghost" onclick="downloadRows()">Download as CSV</button>
+    <button class="bigbtn ghost" onclick="saveVcf(true)">Save today's contacts to my phone</button>
+    <button class="bigbtn ghost" onclick="contactsCsv()">Download all contacts (CSV)</button>
     ${RUN && RUN.idx < RUN.ids.length ? '<button class="bigbtn ghost" onclick="renderStop()">Back to the run</button>' : ''}
     <button class="bigbtn ghost" onclick="endRun()">End run and clear today's plan</button>
     <div id="copied" style="color:var(--a);font-size:13px;text-align:center"></div>`;
@@ -630,13 +666,13 @@ function renderCal() {
         <label style="font-size:12px;color:var(--muted)">Leave the distillery at<input class="fld" type="time" value="${CAL.start}" onchange="CAL.start=this.value;store.set('vr_cal',CAL);renderCal()"></label>
         <label style="font-size:12px;color:var(--muted)">Time at each stop<select class="fld" onchange="CAL.mins=+this.value;store.set('vr_cal',CAL);renderCal()">${[20,30,45,60].map(n => `<option value="${n}" ${+CAL.mins === n ? 'selected' : ''}>${n} min</option>`).join('')}</select></label>
       </div>
-      ${st.map(x => `<div class="sumrow"><b>${hm(x.start)}</b> &nbsp;${x.i + 1}. ${esc(x.l.n)}<br><span style="color:var(--muted)">${esc(x.l.a || '')}</span>
+      ${st.map(x => `<div class="sumrow"><b>${hm(x.start)}</b> &nbsp;${x.i + 1}. ${esc(x.l.n)}<br><span style="color:var(--muted)">${esc(x.l.a || '')}</span>${clashHtml(x)}
         <div style="margin-top:4px"><a class="link-btn" style="font-size:11px;padding:3px 7px" target="_blank" rel="noopener" href="${gcalLink(x)}">Add this one to Google Calendar</a></div></div>`).join('')}
     </div>
     <button class="bigbtn next" onclick="downloadIcs()">Download the whole day (.ics)</button>
     <div class="addr" style="font-size:12px;line-height:1.6;color:var(--muted)">
-      Times are a rough guide: drive time is estimated from distance. On Android, if the .ics file won't open in your calendar,
-      use the "Add this one" buttons, or import the file at calendar.google.com (Settings, Import and export).
+      Times are a rough guide: drive time is estimated from distance. On the Pixel, the Google Calendar app won't import a .ics file,
+      so tap "Add this one" on each stop (it opens Calendar with the event filled in, then tap Save), or import the downloaded file at calendar.google.com (Settings, Import and export).
     </div>`;
 }
 function evText(x) {
@@ -644,6 +680,8 @@ function evText(x) {
   const last = [...LOG].reverse().find(e => e.vid === vidOf(x.l));
   return `${x.l.cat}${x.l.cap ? ', ' + x.l.cap + ' patrons' : ''}. Priority ${pri(x.l)}.\n${pt.stage}: ${pt.line} Ask: ${pt.q}${pt.next ? '\nNext step from last time: ' + pt.next : ''}${pt.tips.length ? '\n' + pt.tips.join(' ') : ''}` +
     (last ? `\nLast visit ${dmy(last.date)}: ${last.act}. ${last.outcome || ''}` : '') + (x.l.note ? `\nNote: ${x.l.note}` : '') +
+    (BEST[vidOf(x.l)] ? `\nBest time: ${BEST[vidOf(x.l)]}` : '') +
+    contactsOf(x.l).map(c => `\nContact: ${c.name}${c.phone ? ' ' + c.phone : ''}`).join('') +
     `\nLog the visit: ${location.href.split('#')[0].split('?')[0]}`;
 }
 const evTitle = x => `${x.i + 1}. ${x.l.n}`;
@@ -681,8 +719,9 @@ function dueFollowUps() {
   return out.sort((a, b) => a.fu < b.fu ? -1 : 1);
 }
 function fupsHtml() {
-  const f = dueFollowUps(); if (!f.length) return '';
-  return `<div id="fups"><h3>Follow-ups due this week (${f.length})</h3>${f.map(e => {
+  const f = dueFollowUps(), r = reordersDue(), bk = backupNag();
+  if (!f.length && !r.length && !bk) return '';
+  return `<div id="fups">${bk}${r.length ? `<h3>Reorders due (${r.length})</h3>${r.map(x => `<div onclick="pickDay('${esc(x.l.zone)}');setTimeout(()=>{fly('${jsId(x.l.id)}');hl('${jsId(x.l.id)}',true)},300)">${esc(x.l.n)} <small>· ${x.last ? 'last order ' + dmy(x.last) : 'no order logged yet'} · ${(DAYS.find(d => d.key === x.l.zone) || {}).d || ''}</small></div>`).join('')}` : ''}${f.length ? `<h3 style="${r.length ? 'margin-top:8px' : ''}">Follow-ups due this week (${f.length})</h3>` : ''}${f.map(e => {
     const l = byVid(e.vid), d = l ? DAYS.find(x => x.key === l.zone) : null;
     return `<div onclick="${l ? `pickDay('${esc(l.zone)}');setTimeout(()=>{fly('${jsId(l.id)}');hl('${jsId(l.id)}',true)},300)` : ''}">${esc(e.n)} <small>· ${dmy(e.fu)}${e.fu < today() ? ' overdue' : ''}${d ? ' · ' + d.d : ''}${e.next ? ' · ' + esc(e.next) : ''}</small></div>`;
   }).join('')}</div>`;
@@ -692,18 +731,281 @@ function lastVisit(l) {
   return e ? `<div class="last">Last: ${dmy(e.date)} · ${esc(e.act)}${e.fu ? ' · follow up ' + dmy(e.fu) : ''}</div>` : '';
 }
 
+// ---------- Contacts: names and numbers per venue, call or text in one tap, save to the phone's contacts ----------
+let CONTACTS = store.get('vr_contacts', {});   // venue id -> [{ name, phone, email, updated }], newest first
+const telOf = ph => (ph || '').replace(/[^\d+]/g, '');
+function contactsOf(l) { return CONTACTS[vidOf(l)] || []; }
+function saveContact(l, name, phone, email) {
+  if (!name && !phone && !email) return;
+  const list = contactsOf(l).slice();
+  const i = list.findIndex(c => (name && c.name.toLowerCase() === name.toLowerCase()) || (phone && telOf(c.phone) === telOf(phone)));
+  const c = { ...(i >= 0 ? list[i] : {}), name: name || (i >= 0 ? list[i].name : ''), phone: phone || (i >= 0 ? list[i].phone : ''),
+              email: email || (i >= 0 ? list[i].email : ''), venue: l.n, address: l.a || '', updated: today() };
+  if (i >= 0) list.splice(i, 1);
+  list.unshift(c); CONTACTS[vidOf(l)] = list; store.set('vr_contacts', CONTACTS);
+}
+function contactsHtml(l) {
+  const cs = contactsOf(l); if (!cs.length) return `<h4>Contact</h4><div class="hint" style="font-size:13px"><a href="https://www.google.com/search?q=${encodeURIComponent(l.n + ' ' + (l.sub || '') + ' phone')}" target="_blank" rel="noopener" style="color:var(--b)">Look up their phone number</a></div>`;
+  return `<h4>Contacts</h4>` + cs.map((c, i) => `<div class="hist" style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+    <span style="flex:1;min-width:120px"><b>${esc(c.name || 'Contact')}</b><small>${esc(c.phone || '')}${c.email ? ' · ' + esc(c.email) : ''}</small></span>
+    ${c.phone ? `<a class="link-btn" href="tel:${telOf(c.phone)}">Call</a><a class="link-btn" href="sms:${telOf(c.phone)}">Text</a>` : ''}
+    <button class="link-btn" onclick="saveVcfOne('${jsId(vidOf(l))}', ${i})">Save to phone</button></div>`).join('');
+}
+function callLine(l) {
+  const c = contactsOf(l)[0]; if (!c || !c.phone) return '';
+  return `<div class="last"><a href="tel:${telOf(c.phone)}" style="color:#9fe0c0">Call ${esc(c.name || '')} ${esc(c.phone)}</a></div>`;
+}
+function vcard(c) {
+  const e = t => String(t || '').replace(/\\/g, '\\\\').replace(/;/g, '\;').replace(/,/g, '\\,').replace(/\n/g, '\\n');
+  const role = ((c.name || '').match(/\(([^)]*)\)/) || [])[1] || '', nm = (c.name || '').replace(/\([^)]*\)/g, '').replace(/,\s*$/, '').trim() || 'Contact';
+  const parts = nm.split(/\s+/), first = parts[0] || '', last = parts.slice(1).join(' ');
+  return ['BEGIN:VCARD', 'VERSION:3.0', `N:${e(last)};${e(first)};;;`, `FN:${e(nm + ' (' + c.venue + ')')}`, `ORG:${e(c.venue)}`, role ? `TITLE:${e(role)}` : '',
+    c.phone ? `TEL;TYPE=CELL:${c.phone}` : '', c.email ? `EMAIL;TYPE=WORK:${c.email}` : '', c.address ? `ADR;TYPE=WORK:;;${e(c.address)};;;;` : '',
+    `NOTE:${e('Via Nova venue contact. Added ' + dmy(c.updated))}`, 'END:VCARD'].filter(Boolean).join('\r\n');
+}
+function dlText(txt, name, type) { const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([txt], { type })); a.download = name; a.click(); }
+function saveVcfOne(vid, i) { const c = (CONTACTS[vid] || [])[i]; if (c) dlText(vcard(c), (c.name || 'contact').replace(/\W+/g, '-') + '.vcf', 'text/x-vcard'); }
+function saveVcf(todayOnly) {
+  const all = Object.values(CONTACTS).flat().filter(c => !todayOnly || c.updated === today());
+  if (!all.length) { alert('No contacts saved ' + (todayOnly ? 'today' : 'yet') + '.'); return; }
+  dlText(all.map(vcard).join('\r\n'), 'via-nova-contacts-' + today() + '.vcf', 'text/x-vcard');
+}
+function contactsCsv() {
+  const rows = [['Venue ID','Venue','Address','Name','Mobile','Email','Last updated']];
+  Object.entries(CONTACTS).forEach(([vid, cs]) => cs.forEach(c => rows.push([vid, c.venue, c.address, c.name, c.phone, c.email, dmy(c.updated)])));
+  dlText('\ufeff' + rows.map(r => r.map(x => '"' + String(x || '').replace(/"/g, '""') + '"').join(',')).join('\n'), 'via-nova-contacts.csv', 'text/csv');
+}
+
+// ---------- Android share sheet (Messages, WhatsApp, Gmail, Drive) where the phone supports it ----------
+const canShare = !!navigator.share;
+async function shareText(title, text) { try { await navigator.share({ title, text }); } catch (e) {} }
+async function shareFile(name, text, type) {
+  const f = new File([text], name, { type });
+  if (navigator.canShare && navigator.canShare({ files: [f] })) { try { await navigator.share({ files: [f], title: name }); return true; } catch (e) { return true; } }
+  return false;
+}
+
+// ---------- Settings ----------
+let SET = { name: 'Josh', orderPhone: '', orderEmail: '', reorderDays: 28, ...store.get('vr_settings', {}) };
+function saveSet(k, v) { SET[k] = v; store.set('vr_settings', SET); }
+
+// ---------- Orders: products from the price list (stockist prices inc GST, effective 1 October 2025) ----------
+const PRODUCTS = [
+  ['gin200', 'New Wave Gin 200ml', 15], ['gin700', 'New Wave Gin 700ml', 52], ['gin1l', 'New Wave Gin 1L', 62],
+  ['vod200', 'New Wave Vodka 200ml', 13], ['vod700', 'New Wave Vodka 700ml', 42], ['vod1l', 'New Wave Vodka 1L', 52],
+  ['rtd', 'Nova RTD carton (16 x 330ml)', 76],
+];
+const money = n => '$' + (Math.round(n * 100) / 100).toLocaleString('en-AU', { minimumFractionDigits: 0, maximumFractionDigits: 2 });
+function orderFormHtml() {
+  return `<h4>Order</h4>` + PRODUCTS.map(([k, n, pr]) => `<div style="display:grid;grid-template-columns:1fr 80px;gap:8px;align-items:center;margin-top:6px">
+    <span style="font-size:14px">${n}<small style="display:block;color:var(--muted);font-size:11px">${money(pr)} each inc GST</small></span>
+    <input class="fld" style="margin:0;text-align:center" id="q-${k}" type="number" inputmode="numeric" min="0" placeholder="0" oninput="orderTotal()"></div>`).join('') +
+    `<div id="o-total" style="margin-top:10px;font-size:15px;font-weight:700">Total $0</div>`;
+}
+function readOrder() {
+  const lines = PRODUCTS.map(([k, n, pr]) => ({ n, pr, q: +(document.getElementById('q-' + k) || {}).value || 0 })).filter(x => x.q > 0);
+  const total = lines.reduce((s, x) => s + x.q * x.pr, 0), units = lines.reduce((s, x) => s + x.q, 0);
+  return { lines, total: Math.round(total * 100) / 100, units, text: lines.map(x => `${x.n} x${x.q}`).join(', ') };
+}
+function orderTotal() { const o = readOrder(); document.getElementById('o-total').textContent = `Total ${money(o.total)} inc GST · ${o.units} unit${o.units === 1 ? '' : 's'}`; }
+function orderMessage(e, l) {
+  const c = contactsOf(l)[0];
+  return `New order from ${SET.name || 'Josh'}\n${l.n}${l.lno ? ' (licence ' + l.lno + ')' : ''}\n${l.a || ''}\n` +
+    (c ? `Contact: ${c.name}${c.phone ? ' ' + c.phone : ''}${c.email ? ' ' + c.email : ''}\n` : '') +
+    `\n${e.products.split(', ').join('\n')}\n\nTotal ${money(e.val)} inc GST (${e.bottles} units)` + (e.outcome ? `\nNotes: ${e.outcome}` : '');
+}
+function renderOrderSaved(e, l) {
+  const nextL = stopById(RUN.ids[RUN.idx]), msg = orderMessage(e, l);
+  document.getElementById('run-title').textContent = 'Order saved';
+  document.getElementById('run-body').innerHTML = `
+    <div class="card"><span class="tag A">Order</span><h2 style="margin-top:8px">${esc(l.n)}</h2>
+      <div class="hist" style="white-space:pre-line;margin-top:10px">${esc(msg)}</div></div>
+    <a class="bigbtn waze" href="sms:${telOf(SET.orderPhone)}?&body=${encodeURIComponent(msg)}">Text the order${SET.orderPhone ? '' : ' (pick the number)'}</a>
+    <a class="bigbtn ghost" href="mailto:${encodeURIComponent(SET.orderEmail || '')}?subject=${encodeURIComponent('Order: ' + l.n)}&body=${encodeURIComponent(msg)}">Email the order</a>
+    ${canShare ? `<button class="bigbtn ghost" onclick="shareText('Order: ${esc(jsId(l.n))}', document.getElementById('o-msg').value)">Share the order (WhatsApp, other apps)</button><textarea id="o-msg" style="position:absolute;left:-9999px">${esc(msg)}</textarea>` : ''}
+    ${nextL ? `<button class="bigbtn next" onclick="renderStop();window.location.href=waze(stopById(RUN.ids[RUN.idx]))">Waze to ${esc(nextL.n)}</button>` : `<button class="bigbtn next" onclick="renderStop()">Finish the day</button>`}
+    <button class="bigbtn ghost" onclick="renderStop()">Next stop, no Waze</button>
+    <div class="addr" style="font-size:12px;color:var(--muted)">Set who orders go to under More, Settings.</div>`;
+}
+
+// ---------- Reorders: stockists with no order in the last few weeks ----------
+function reordersDue() {
+  const cut = plusDays(-(+SET.reorderDays || 28));
+  return ALL.filter(l => l.st === 'stockist').map(l => {
+    const os = LOG.filter(e => e.vid === vidOf(l) && e.act === 'Order').map(e => e.date).sort();
+    const any = LOG.filter(e => e.vid === vidOf(l)).map(e => e.date).sort();
+    return { l, last: os[os.length - 1] || '', seen: any[any.length - 1] || '' };
+  }).filter(x => (!x.last || x.last < cut) && (!x.seen || x.seen < plusDays(-7)))
+    .sort((a, b) => (a.last || '0') < (b.last || '0') ? -1 : 1);
+}
+
+// ---------- Best time to visit ----------
+let BEST = store.get('vr_best', {});   // venue id -> free text, e.g. "Manager in Tue and Thu, avoid 12-2"
+function bestHtml(l) {
+  return `<h4>Best time to visit</h4><input class="fld" style="margin-top:0" placeholder="e.g. Manager in Tue and Thu, avoid 12-2" value="${esc(BEST[vidOf(l)] || '')}"
+    onchange="BEST['${jsId(vidOf(l))}']=this.value.trim();store.set('vr_best',BEST)">`;
+}
+function bestLine(l) { const b = BEST[vidOf(l)]; return b ? `<div class="last" style="color:#c9b6ff">Best: ${esc(b)}</div>` : ''; }
+const DAYN = ['sun','mon','tue','wed','thu','fri','sat'];
+function clashes(l, dateOff, startMin) {
+  const b = (BEST[vidOf(l)] || '').toLowerCase(); if (!b) return [];
+  const out = [], days = [...b.matchAll(/\b(mon|tue|wed|thu|fri|sat|sun)/g)].map(m => m[1]);
+  const d = new Date(); d.setDate(d.getDate() + dateOff);
+  if (days.length && !/avoid\s+(mon|tue|wed|thu|fri|sat|sun)/.test(b) && !days.includes(DAYN[d.getDay()])) out.push('best days: ' + [...new Set(days)].join(', '));
+  const m = b.match(/avoid\s+(\d{1,2})(?::(\d{2}))?\s*(am|pm)?\s*(?:-|to)\s*(\d{1,2})(?::(\d{2}))?\s*(am|pm)?/);
+  if (m && startMin != null) {
+    const h = (x, ap) => { x = +x; if (ap === 'pm' && x < 12) x += 12; else if (!ap && x < 8) x += 12; return x; };
+    const a = h(m[1], m[3] || m[6]) * 60 + (+m[2] || 0), z = h(m[4], m[6]) * 60 + (+m[5] || 0);
+    if (startMin >= a && startMin < z) out.push('planned during ' + m[0]);
+  }
+  return out;
+}
+function clashHtml(x) { const c = clashes(x.l, CAL.day, x.start); return c.length ? `<div style="color:var(--gold);font-size:12px;margin-top:3px">Check: ${esc(c.join('; '))}</div>` : ''; }
+
+// ---------- Kit list for the day ----------
+let KIT = store.get('vr_kit', {});
+function kitItems() {
+  const seq = planStops(), cats = new Set(seq.map(l => l.cat)), items = [];
+  const add = (t, why) => items.push({ t, why });
+  add('Price lists and order pad', 'every run'); add('Business cards', 'every run'); add('RSA certificate', 'any tasting');
+  add('Tasting cups and a spittoon or tip bucket', 'manager tastings');
+  if (seq.some(l => /bar|pub|club|function/i.test(l.cat))) add('1L gin and vodka samples', 'bars, pubs, clubs and function venues today');
+  if (seq.some(l => /club|pub|bottle/i.test(l.cat))) add('Cold RTD cans in an esky', 'clubs, pubs and bottle shops today');
+  if (seq.some(l => /accommodation|gift|corporate/i.test(l.cat))) add('200ml gin samples', 'accommodation and gift venues today');
+  if (seq.some(l => /bottle/i.test(l.cat))) add('700ml display bottles', 'bottle shops today');
+  if (seq.some(l => pitchFor(l).stage.startsWith('Tasted'))) add('Tonic and ice for a quick G&T', 'venues ready to order');
+  seq.forEach(l => { const pt = pitchFor(l); if (pt.next) add(pt.next, l.n); });
+  return items;
+}
+function openKit() {
+  document.getElementById('run').classList.add('show');
+  document.getElementById('run-title').textContent = 'Kit for today';
+  const key = today(); KIT[key] = KIT[key] || {};
+  document.getElementById('run-body').innerHTML = `<div class="card">${kitItems().map((it, i) => `
+    <label class="sumrow" style="display:flex;gap:10px;align-items:flex-start;cursor:pointer">
+      <input type="checkbox" style="width:20px;height:20px;accent-color:var(--a);margin-top:2px" ${KIT[key][it.t] ? 'checked' : ''}
+        onchange="KIT['${key}'][this.dataset.t]=this.checked;store.set('vr_kit',KIT)" data-t="${esc(it.t)}">
+      <span><b>${esc(it.t)}</b><br><span style="color:var(--muted)">${esc(it.why)}</span></span></label>`).join('')}</div>
+    <button class="bigbtn ghost" onclick="closeRun()">Done</button>`;
+}
+
+// ---------- Mileage ----------
+let MILES = store.get('vr_miles', {});   // date -> { start, end, est, note }
+function planKm() { let t = 0, p = BASE_PT; planStops().forEach(l => { t += km(p, [l.lat, l.lng]); p = [l.lat, l.lng]; }); return t + km(p, BASE_PT); }
+function milesCardHtml() {
+  const m = MILES[today()] || {}, est = (RUN && RUN.estKm) || Math.round(planKm() * 1.3);
+  return `<div class="card"><h4 style="margin-top:0">Mileage</h4>
+    <div class="row2"><input class="fld" id="m-start" type="number" inputmode="numeric" placeholder="Odometer start" value="${m.start || ''}">
+    <input class="fld" id="m-end" type="number" inputmode="numeric" placeholder="Odometer end" value="${m.end || ''}"></div>
+    <div class="addr" style="font-size:12px">Planner estimate: about ${est} km.</div>
+    <button class="bigbtn ghost" style="margin:8px 0 0" onclick="saveMiles(${est})">Save mileage</button><div id="m-ok" style="color:var(--a);font-size:13px"></div></div>`;
+}
+function saveMiles(est) {
+  const s = +document.getElementById('m-start').value || '', e = +document.getElementById('m-end').value || '';
+  const subs = [...new Set(LOG.filter(x => x.date === today()).map(x => x.sub).filter(Boolean))].join(', ');
+  MILES[today()] = { ...(MILES[today()] || {}), start: s, end: e, est, note: 'Via Nova sales run' + (subs ? ': ' + subs : '') };
+  store.set('vr_miles', MILES); document.getElementById('m-ok').textContent = 'Saved' + (s && e ? ': ' + (e - s) + ' km' : '');
+}
+function milesCsv() {
+  const rows = [['Date','Odometer start','Odometer end','Km travelled','Planner estimate (km)','Purpose']];
+  Object.keys(MILES).sort().forEach(d => { const m = MILES[d]; rows.push([dmy(d), m.start || '', m.end || '', m.start && m.end ? m.end - m.start : '', m.est || '', m.note || 'Via Nova sales run']); });
+  dlText('﻿' + rows.map(r => r.map(x => '"' + String(x).replace(/"/g, '""') + '"').join(',')).join('\n'), 'via-nova-mileage.csv', 'text/csv');
+}
+
+// ---------- Weekly report ----------
+function weekStart(off) { const d = new Date(); const wd = (d.getDay() + 6) % 7; d.setDate(d.getDate() - wd - 7 * off); return d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0') + '-' + String(d.getDate()).padStart(2,'0'); }
+function addDays(iso, n) { const [y, m, d] = iso.split('-').map(Number); const x = new Date(y, m - 1, d + n); return x.getFullYear() + '-' + String(x.getMonth()+1).padStart(2,'0') + '-' + String(x.getDate()).padStart(2,'0'); }
+function weeklyText(off) {
+  const a = weekStart(off), z = addDays(a, 6), w = LOG.filter(e => e.date >= a && e.date <= z);
+  const n = act => w.filter(e => e.act === act).length, orders = w.filter(e => e.act === 'Order');
+  const firstOrder = vid => LOG.filter(e => e.vid === vid && e.act === 'Order').map(e => e.date).sort()[0];
+  const newSt = [...new Set(orders.filter(e => firstOrder(e.vid) >= a).map(e => e.n))];
+  const venues = new Set(w.map(e => e.vid)).size;
+  const kmW = Object.keys(MILES).filter(d => d >= a && d <= z).reduce((s, d) => s + (MILES[d].start && MILES[d].end ? MILES[d].end - MILES[d].start : (MILES[d].est || 0)), 0);
+  const fu = w.filter(e => e.fu).map(e => `${e.n} (${dmy(e.fu)}${e.next ? ', ' + e.next : ''})`);
+  return `Via Nova sales week ${dmy(a)} to ${dmy(z)}\n\n` +
+    `Venues visited: ${venues}\nCalls with no tasting: ${n('Visit')}\nManager tastings: ${n('Manager tasting')}\nCustomer tastings: ${n('Customer tasting')}\n` +
+    `Orders: ${orders.length} (${orders.reduce((s, e) => s + (+e.bottles || 0), 0)} units, ${money(orders.reduce((s, e) => s + (+e.val || 0), 0))} inc GST)\n` +
+    `New stockists: ${newSt.length}${newSt.length ? ' (' + newSt.join(', ') + ')' : ''}\n` + (kmW ? `Km driven: ${kmW}\n` : '') +
+    (orders.length ? `\nOrders\n${orders.map(e => `${e.n}: ${e.products || e.bottles + ' units'}`).join('\n')}\n` : '') +
+    (fu.length ? `\nFollow-ups booked\n${fu.join('\n')}\n` : '');
+}
+function renderReport(off) {
+  const txt = weeklyText(off);
+  document.getElementById('run-title').textContent = 'Weekly report';
+  document.getElementById('run-body').innerHTML = `
+    <div class="opts" style="margin-bottom:10px"><button class="opt ${off === 0 ? 'on' : ''}" onclick="renderReport(0)">This week</button><button class="opt ${off === 1 ? 'on' : ''}" onclick="renderReport(1)">Last week</button></div>
+    <div class="card"><div class="hist" style="white-space:pre-line">${esc(txt)}</div></div>
+    <button class="bigbtn next" onclick="navigator.clipboard.writeText(document.getElementById('rep-txt').value).then(()=>this.textContent='Copied')">Copy the report</button>
+    <a class="bigbtn ghost" href="sms:${telOf(SET.orderPhone)}?&body=${encodeURIComponent(txt)}">Text it</a>
+    <a class="bigbtn ghost" href="mailto:${encodeURIComponent(SET.orderEmail || '')}?subject=${encodeURIComponent('Via Nova sales week ' + dmy(weekStart(off)))}&body=${encodeURIComponent(txt)}">Email it</a>
+    ${canShare ? `<button class="bigbtn ghost" onclick="shareText('Via Nova weekly report', document.getElementById('rep-txt').value)">Share it (other apps)</button>` : ''}
+    <textarea id="rep-txt" style="position:absolute;left:-9999px">${esc(txt)}</textarea>
+    <button class="bigbtn ghost" onclick="openMore()">Back</button>`;
+}
+
+// ---------- Backup and restore ----------
+const BK_KEYS = ['vr_log','vr_contacts','vr_best','vr_miles','vr_settings','vr_plan','vr_run','vr_cal','vr_pri','vr_hide_types','vr_day','vr_kit','vm_edits','vm_added'];
+function backup() {
+  const data = { app: 'via-nova-route-planner', saved: new Date().toISOString(), keys: {} };
+  BK_KEYS.forEach(k => { const v = localStorage.getItem(k); if (v != null) data.keys[k] = v; });
+  const name = 'via-nova-backup-' + today() + '.json', txt = JSON.stringify(data);
+  store.set('vr_lastbackup', today()); renderList();
+  shareFile(name, txt, 'application/json').then(done => { if (!done) dlText(txt, name, 'application/json'); });
+}
+function restore(file) {
+  const r = new FileReader();
+  r.onload = () => {
+    try {
+      const d = JSON.parse(r.result); if (d.app !== 'via-nova-route-planner') throw new Error();
+      if (!confirm('Replace everything on this device with the backup from ' + d.saved.slice(0, 10) + '?')) return;
+      Object.entries(d.keys).forEach(([k, v]) => localStorage.setItem(k, v)); location.reload();
+    } catch (e) { alert('That file is not a route planner backup.'); }
+  };
+  r.readAsText(file);
+}
+function backupNag() {
+  if (!LOG.length) return '';
+  const last = store.get('vr_lastbackup', ''), days = last ? Math.round((new Date(today()) - new Date(last)) / 864e5) : null;
+  if (last && days < 7) return '';
+  return `<div style="margin-bottom:6px"><b style="color:var(--accent)">${last ? 'Last backup ' + days + ' days ago' : 'Not backed up yet'}.</b> <a href="#" onclick="backup();return false" style="color:var(--gold)">Back up now</a></div>`;
+}
+
+// ---------- More menu ----------
+function openMore() {
+  document.getElementById('run').classList.add('show');
+  document.getElementById('run-title').textContent = 'More';
+  const last = store.get('vr_lastbackup', '');
+  document.getElementById('run-body').innerHTML = `
+    <div class="card"><h4 style="margin-top:0">Reports</h4>
+      <button class="bigbtn ghost" onclick="renderReport(0)">Weekly report for the owner</button>
+      <button class="bigbtn ghost" onclick="milesCsv()">Download the mileage log (CSV)</button>
+      <button class="bigbtn ghost" style="margin-bottom:0" onclick="contactsCsv()">Download all contacts (CSV)</button></div>
+    <div class="card"><h4 style="margin-top:0">Backup</h4>
+      <div class="addr" style="font-size:13px;margin-bottom:8px">Your visit log, contacts, best times and mileage live in this phone's browser. Back up weekly: on the Pixel, Back up now opens the share sheet, so pick Drive and it saves straight there. ${last ? 'Last backup ' + dmy(last) + '.' : 'No backup yet.'}</div>
+      <button class="bigbtn next" onclick="backup()">Back up now</button>
+      <label class="bigbtn ghost" style="margin-bottom:0">Restore from a backup<input type="file" accept=".json,application/json" style="display:none" onchange="this.files[0]&&restore(this.files[0])"></label></div>
+    <div class="card"><h4 style="margin-top:0">Settings</h4>
+      <label style="font-size:12px;color:var(--muted)">Your name (goes in the By column)<input class="fld" value="${esc(SET.name)}" onchange="saveSet('name',this.value.trim())"></label>
+      <label style="font-size:12px;color:var(--muted)">Send orders and reports to (mobile)<input class="fld" type="tel" value="${esc(SET.orderPhone)}" onchange="saveSet('orderPhone',this.value.trim())"></label>
+      <label style="font-size:12px;color:var(--muted)">Send orders and reports to (email)<input class="fld" type="email" value="${esc(SET.orderEmail)}" onchange="saveSet('orderEmail',this.value.trim())"></label>
+      <label style="font-size:12px;color:var(--muted)">Flag a reorder after (days)<input class="fld" type="number" value="${+SET.reorderDays || 28}" onchange="saveSet('reorderDays',+this.value||28)"></label></div>
+    <button class="bigbtn ghost" onclick="closeRun()">Close</button>`;
+}
+
 // ---------- Go ----------
 function renderAll(fit) {
   const v = ALL.filter(l => l.zone === day);
   renderWeek(); renderFilters(v); renderList(); drawMap(fit); renderPlan(); saveBar();
 }
 document.getElementById('q').addEventListener('input', () => { renderList(); drawMap(false); });
+if ('serviceWorker' in navigator && (location.protocol === 'https:' || location.hostname === 'localhost')) navigator.serviceWorker.register('sw.js').catch(() => {});
 (async () => {
   try {
     const r = await fetch('locations.json', { cache:'no-cache' });
     build(await r.json());
   } catch (e) {
-    document.getElementById('loader').textContent = 'Could not load locations.json. Open this page from the same site as the venue map.'; return;
+    document.getElementById('loader').textContent = 'No signal and no saved copy of the venue list yet. Open the planner once with signal and it will work offline after that.'; return;
   }
   if (!DAYS.some(d => d.key === day)) day = DAYS[0].key;
   renderAll(true);
