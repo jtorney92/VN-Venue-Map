@@ -11,6 +11,7 @@
 <link rel="icon" href="icon-192.png">
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="hours.js"></script>
 <style>
 :root {
   --bg:#14182b; --panel:#1b2140; --panel2:#232a4f; --line:#2c355f; --ink:#e8eaf3; --muted:#8d94b3; --accent:#e94560;
@@ -166,6 +167,22 @@ button { font-family:inherit; }
 #fups div { font-size:12px; padding:3px 0; cursor:pointer; }
 #fups div small { color:var(--muted); }
 .last { font-size:11px; color:#9fe0c0; margin-top:3px; }
+.hrs { font-size:11px; color:var(--muted); margin-top:3px; }
+.hrs.shut, .hrs .shut { color:var(--accent); font-weight:600; }
+.hrs.early { color:var(--gold); }
+.hbox { font-size:14px; line-height:1.5; }
+.hbox .now { font-weight:700; } .hbox .now.open { color:var(--a); } .hbox .now.closed { color:var(--accent); }
+.hbox small { display:block; color:var(--muted); font-size:12px; margin-top:2px; }
+.hbtns { display:flex; gap:6px; flex-wrap:wrap; margin-top:8px; }
+.hbtns a, .hbtns button { font-size:12px; padding:6px 10px; border-radius:6px; border:1px solid var(--line); background:var(--panel2); color:var(--ink); cursor:pointer; text-decoration:none; }
+.hed { margin-top:10px; }
+.hed .hr { display:grid; grid-template-columns:42px 1fr 1fr auto; gap:6px; align-items:center; margin-top:6px; font-size:13px; }
+.hed input[type=time] { width:100%; padding:7px; border-radius:6px; border:1px solid var(--line); background:var(--bg); color:var(--ink); font-size:14px; font-family:inherit; }
+.hed label.cl { font-size:12px; color:var(--muted); display:flex; align-items:center; gap:4px; white-space:nowrap; }
+.hed .quick { display:grid; grid-template-columns:1fr 1fr auto; gap:6px; align-items:center; }
+.hed .quick button, .hed .save button { font-size:13px; padding:8px 10px; border-radius:6px; border:1px solid var(--line); background:var(--panel2); color:var(--ink); cursor:pointer; }
+.hed .save { display:flex; gap:6px; flex-wrap:wrap; margin-top:10px; }
+.hed .save .pri { background:var(--accent); border-color:var(--accent); color:#fff; font-weight:700; }
 </style>
 </head>
 <body>
@@ -286,6 +303,7 @@ function renderFilters(v) {
   const d = DAYS.find(x => x.key === day);
   document.getElementById('dayhead').innerHTML = `<h2>${d.d === 'Monthly' ? 'Monthly run' : d.d}: ${d.ar}</h2><p>Suburbs in driving order from the distillery. Let it suggest a run, add a whole suburb, tap pins on the map, or tick venues one by one.</p>
     <div class="sugg"><select id="sg-n" aria-label="Number of stops">${[6,8,10,12,15].map(n => `<option value="${n}" ${n === (+store.get('vr_sg_n', 10)) ? 'selected' : ''}>${n} stops</option>`).join('')}</select>
+    <select id="sg-day" aria-label="Day of the run" onchange="CAL.day=+this.value;store.set('vr_cal',CAL);renderList();renderPlan()"><option value="0" ${!CAL.day ? 'selected' : ''}>for today</option><option value="1" ${CAL.day === 1 ? 'selected' : ''}>for tomorrow</option></select>
     <button class="go" onclick="suggestRun()">Suggest a run</button>${PLAN.length ? '<button class="ghost2" onclick="clearPlan()">Clear picks</button>' : ''}</div>`;
   document.getElementById('pri').innerHTML = ['Stockist','A','B','C'].map(k => {
     const c = v.filter(l => pri(l) === k).length;
@@ -355,10 +373,11 @@ function rowHtml(l) {
     <div>
       <div class="t" onclick="fly('${jsId(l.id)}')">${esc(l.n)}</div>
       <div class="s">${esc(l.cat)}${l.cap ? ' · ' + l.cap + ' patrons' : ''} · ${esc(l.a || '')}</div>
-      ${SUGG[l.id] && picked ? `<div class="why">Suggested: ${esc(SUGG[l.id])}</div>` : ''}${l.note ? `<div class="note">${esc(l.note)}</div>` : ''}${lastVisit(l)}${callLine(l)}${bestLine(l)}
+      ${hoursLine(l)}${SUGG[l.id] && picked ? `<div class="why">Suggested: ${esc(SUGG[l.id])}</div>` : ''}${l.note ? `<div class="note">${esc(l.note)}</div>` : ''}${lastVisit(l)}${callLine(l)}${bestLine(l)}
       <div class="acts">
         <button class="${l.st === 'contacted' ? 'on' : ''}" onclick="setSt('${jsId(l.id)}','contacted')">Contacted</button>
         <button class="${l.st === 'stockist' ? 'on gold' : ''}" onclick="setSt('${jsId(l.id)}','stockist')">Stockist</button>
+        <button onclick="openHours('${jsId(l.id)}')">Hours</button>
         <a href="${nav}" target="_blank" rel="noopener">Directions</a>
       </div>
     </div>
@@ -409,8 +428,11 @@ function suggestRun() {
   const n = +document.getElementById('sg-n').value || 10; store.set('vr_sg_n', n);
   const fu = new Set(dueFollowUps().map(e => e.vid)), ro = new Set(reordersDue().map(x => vidOf(x.l)));
   const lastSeen = l => { const d = LOG.filter(e => e.vid === vidOf(l)).map(e => e.date).sort(); return d[d.length - 1] || ''; };
-  const recent = plusDays(-14);
+  const recent = plusDays(-14), wd = runWd();
+  const [sh, sm] = CAL.start.split(':').map(Number), runEnd = sh * 60 + sm + n * (+CAL.mins + 12);
+  let closedN = 0;
   const cands = current().map(l => {
+    if (closedOn(l, wd)) { closedN++; return null; }   // shut all day on the day of the run
     const v = vidOf(l), seen = lastSeen(l), pt = pitchFor(l);
     let score = 0, why = '';
     if (fu.has(v)) { score = 100; why = 'follow-up due'; }
@@ -425,10 +447,11 @@ function suggestRun() {
     score += ({ 'Bottle shop': 12, 'Bar': 10, 'Pub / Hotel': 7, 'Club': 5, 'Restaurant / Cafe': 3, 'Accommodation': 3, 'Gift / Retail': 3 })[l.cat] || 0;
     if (/estate|vineyard|winery|wines\b|cellar door|ferries/i.test(l.n) && !/cellars|liquor|bottle/i.test(l.n)) score -= 12;   // wineries and transport: slow movers for spirits
     score += Math.min(+l.cap || 0, 500) / 100;
-    if (clashes(l, 0, null).length) score -= 35;   // best-time note says not today
+    if (clashes(l, +CAL.day || 0, null).length) score -= 35;   // best-time note says not that day
+    const op = firstOpen(l, wd); if (op != null && op >= runEnd) score -= 25;   // opens after the run would finish
     return { l, score, why };
   }).filter(Boolean);
-  if (!cands.length) { toast('Nothing to suggest with these filters. Switch on more priorities or types.'); return; }
+  if (!cands.length) { toast('Nothing to suggest with these filters. Switch on more priorities or types.' + (closedN ? ` (${closedN} closed ${HOURS.SHORT[wd]})` : '')); return; }
   // anything due goes in first (follow-ups, reorders, tasted and ready to order), then the rest fill in around them
   const pool = cands.slice().sort((a, b) => b.score - a.score);
   const picked = pool.filter(c => c.score >= 75).slice(0, n);
@@ -448,7 +471,7 @@ function suggestRun() {
   PLAN = picked.map(c => c.l.id); SUGG = {}; picked.forEach(c => SUGG[c.l.id] = c.why);
   store.set('vr_plan', PLAN); renderPlan(); renderList(); renderFilters(ALL.filter(l => l.zone === day)); drawMap(false);
   const count = {}; picked.forEach(c => count[c.why] = (count[c.why] || 0) + 1);
-  toast(`Suggested ${picked.length}: ` + Object.entries(count).map(([k, v]) => v + ' ' + k).join(', '));
+  toast(`Suggested ${picked.length}: ` + Object.entries(count).map(([k, v]) => v + ' ' + k).join(', ') + (closedN ? `. Left out ${closedN} closed ${HOURS.SHORT[wd]}` : ''));
 }
 function clearPlan() { PLAN = []; SUGG = {}; if (runLive()) { RUN = null; store.set('vr_run', null); } store.set('vr_plan', PLAN); renderPlan(); renderList(); drawMap(false); renderFilters(ALL.filter(l => l.zone === day)); }
 function planStops() {
@@ -465,7 +488,9 @@ function renderPlan() {
   if (!seq.length) return;
   let tot = 0, p = BASE_PT; seq.forEach(l => { tot += km(p, [l.lat, l.lng]); p = [l.lat, l.lng]; }); tot += km(p, BASE_PT);
   document.getElementById('plan-n').textContent = seq.length + ' stop' + (seq.length === 1 ? '' : 's') + ' planned';
-  document.getElementById('plan-sub').textContent = 'About ' + Math.round(tot * 1.3) + ' km by road, back to the distillery';
+  const wd = runWd(), known = seq.filter(l => hoursOf(l)).length, shutN = seq.filter(l => closedOn(l, wd)).length;
+  document.getElementById('plan-sub').textContent = 'About ' + Math.round(tot * 1.3) + ' km by road, back to the distillery · ' +
+    (shutN ? shutN + ' closed ' + HOURS.SHORT[wd] + ' · ' : '') + 'hours known for ' + known + ' of ' + seq.length;
   const pts = seq.map(l => l.lat + ',' + l.lng), dest = pts.pop();
   document.getElementById('plan-go').style.display = seq.length <= GMAPS_MAX ? '' : 'none';
   document.getElementById('plan-go').href = 'https://www.google.com/maps/dir/?api=1&destination=' + dest +
@@ -570,7 +595,10 @@ function pitchFor(l) {
 const runLive = () => RUN && RUN.date === today() && RUN.idx < RUN.ids.length;
 function startRun() {
   if (runLive()) return openRun();   // pick up where you left off
-  const seq = planStops(); if (!seq.length) return;
+  let seq = planStops(); if (!seq.length) return;
+  const twd = HOURS.wdOf(new Date()), shut = seq.filter(l => closedOn(l, twd));
+  if (shut.length && seq.length > shut.length && confirm(`${shut.map(l => l.n).join(', ')} ${shut.length === 1 ? 'is' : 'are'} closed today. Leave ${shut.length === 1 ? 'it' : 'them'} out of the run?`))
+    seq = seq.filter(l => !shut.includes(l));
   RUN = { date: today(), ids: seq.map(l => l.id), idx: 0, estKm: Math.round(planKm() * 1.3) }; store.set('vr_run', RUN);
   const odo = prompt('Odometer reading as you leave (optional, for the mileage log)', '');
   if (odo && +odo) { MILES[today()] = { ...(MILES[today()] || {}), start: +odo }; store.set('vr_miles', MILES); }
@@ -606,6 +634,7 @@ function renderStop() {
       <span class="tag ${p}">${p === 'Stockist' ? 'Stockist' : 'Priority ' + p}</span>
       <h2 style="margin-top:8px">${esc(l.n)}</h2>
       <div class="addr">${esc(l.cat)}${l.cap ? ' · ' + l.cap + ' patrons' : ''}<br>${esc(l.a || '')}</div>
+      <h4>Opening hours</h4>${hoursBox(l)}
       <h4>Pitch · ${esc(pt.stage)}</h4><div class="hint">${pt.next ? `Your next step from last time: <b>${esc(pt.next)}</b><br>` : ''}${esc(pt.line)}<br>Ask: "${esc(pt.q)}"</div>
       ${pt.tips.map(t => `<div class="hint" style="font-size:13px;color:var(--gold);margin-top:6px">${esc(t)}</div>`).join('')}
       ${contactsHtml(l)}
@@ -768,7 +797,8 @@ function renderCal() {
         <label style="font-size:12px;color:var(--muted)">Leave the distillery at<input class="fld" type="time" value="${CAL.start}" onchange="CAL.start=this.value;store.set('vr_cal',CAL);renderCal()"></label>
         <label style="font-size:12px;color:var(--muted)">Time at each stop<select class="fld" onchange="CAL.mins=+this.value;store.set('vr_cal',CAL);renderCal()">${[20,30,45,60].map(n => `<option value="${n}" ${+CAL.mins === n ? 'selected' : ''}>${n} min</option>`).join('')}</select></label>
       </div>
-      ${st.map(x => `<div class="sumrow"><b>${hm(x.start)}</b> &nbsp;${x.i + 1}. ${esc(x.l.n)}<br><span style="color:var(--muted)">${esc(x.l.a || '')}</span>${clashHtml(x)}
+      ${hoursSummary(st)}
+      ${st.map(x => `<div class="sumrow"><b>${hm(x.start)}</b> &nbsp;${x.i + 1}. ${esc(x.l.n)}<br><span style="color:var(--muted)">${esc(x.l.a || '')}</span>${arriveHtml(x.l, x.start, +CAL.day || 0)}${clashHtml(x)}
         <div style="margin-top:4px"><a class="link-btn" style="font-size:11px;padding:3px 7px" target="_blank" rel="noopener" href="${gcalLink(x)}">Add this one to Google Calendar</a></div></div>`).join('')}
     </div>
     <button class="bigbtn next" onclick="downloadIcs()">Download the whole day (.ics)</button>
@@ -782,7 +812,7 @@ function evText(x) {
   const last = [...LOG].reverse().find(e => e.vid === vidOf(x.l));
   return `${x.l.cat}${x.l.cap ? ', ' + x.l.cap + ' patrons' : ''}. Priority ${pri(x.l)}.\n${pt.stage}: ${pt.line} Ask: ${pt.q}${pt.next ? '\nNext step from last time: ' + pt.next : ''}${pt.tips.length ? '\n' + pt.tips.join(' ') : ''}` +
     (last ? `\nLast visit ${dmy(last.date)}: ${last.act}. ${last.outcome || ''}` : '') + (x.l.note ? `\nNote: ${x.l.note}` : '') +
-    (BEST[vidOf(x.l)] ? `\nBest time: ${BEST[vidOf(x.l)]}` : '') +
+    (BEST[vidOf(x.l)] ? `\nBest time: ${BEST[vidOf(x.l)]}` : '') + hoursEvText(x.l) +
     contactsOf(x.l).map(c => `\nContact: ${c.name}${c.phone ? ' ' + c.phone : ''}`).join('') +
     `\nLog the visit: ${location.href.split('#')[0].split('?')[0]}`;
 }
@@ -965,6 +995,125 @@ function clashes(l, dateOff, startMin) {
 function clashHtml(x) { const c = clashes(x.l, CAL.day, x.start); return c.length ? `<div style="color:var(--gold);font-size:12px;margin-top:3px">Check: ${esc(c.join('; '))}</div>` : ''; }
 
 // ---------- Kit list for the day ----------
+// ---------- Opening hours ----------
+// From OpenStreetMap (the GitHub job refreshes them every Monday) or noted by you. Yours win, since you saw
+// them. Nothing here calls Google: "Check on Google Maps" just opens the venue in the Maps app to read.
+let MYH = store.get('vr_hours', {});   // venue id -> { w: week, Monday first, each day [[open, close]] in minutes; f: date noted }
+const OSMW = {};
+function hoursOf(l) {
+  if (!l || l.det) return null;
+  const v = vidOf(l), mine = MYH[v];
+  if (mine && mine.w) return { week: mine.w, src: 'you, ' + dmy(mine.f) };
+  if (!l.oh) return null;
+  if (!(v in OSMW)) OSMW[v] = HOURS.parseOsm(l.oh);
+  return { week: OSMW[v], raw: l.oh, src: 'OpenStreetMap' };
+}
+function runDate() { const d = new Date(); d.setDate(d.getDate() + (+CAL.day || 0)); return d; }
+const runWd = () => HOURS.wdOf(runDate());
+function closedOn(l, wd) { const h = hoursOf(l); return !!(h && h.week && Array.isArray(h.week[wd]) && !h.week[wd].length); }
+function firstOpen(l, wd) { const h = hoursOf(l), d = h && h.week && h.week[wd]; return d && d.length ? Math.min(...d.map(x => x[0])) : null; }
+const short = (t, n) => t.length > n ? t.slice(0, n - 1) + '…' : t;
+function hoursLine(l) {   // venue rows: hours on the day of the run
+  const h = hoursOf(l); if (!h) return '';
+  const wd = runWd(), dn = HOURS.SHORT[wd];
+  if (!h.week) return `<div class="hrs">Hours: ${esc(short(h.raw, 60))}</div>`;
+  const d = h.week[wd];
+  if (d === null) return '';
+  return d.length ? `<div class="hrs">${dn} ${esc(HOURS.dayText(h.week, wd))}</div>` : `<div class="hrs shut">Closed ${dn}</div>`;
+}
+function arriveHtml(l, min, dateOff) {   // calendar: will it be open when you get there?
+  const h = hoursOf(l);
+  if (!h) return `<div class="hrs">Hours not known yet</div>`;
+  if (!h.week) return `<div class="hrs">Hours: ${esc(short(h.raw, 80))}</div>`;
+  const d = new Date(); d.setDate(d.getDate() + dateOff); const wd = HOURS.wdOf(d), st = HOURS.at(h.week, wd, min);
+  if (st.unknown) return `<div class="hrs">${HOURS.SHORT[wd]} hours not listed</div>`;
+  if (st.open) return `<div class="hrs">Open when you get there (${esc(HOURS.dayText(h.week, wd))})</div>`;
+  if (st.closedAllDay) return `<div class="hrs shut">Closed ${HOURS.SHORT[wd]}</div>`;
+  if (st.opens != null) return `<div class="hrs early">Opens ${HOURS.fmt(st.opens)}, you'd get there at ${hm(min)}</div>`;
+  return `<div class="hrs shut">Closed by ${hm(min)} (${esc(HOURS.dayText(h.week, wd))})</div>`;
+}
+function hoursSummary(st) {
+  const known = st.filter(x => hoursOf(x.l)).length;
+  return `<div class="addr" style="font-size:12px;margin:10px 0 2px">Opening hours known for ${known} of ${st.length} stops.${known < st.length ? ' Add the rest with the Hours button on each venue, or on the stop card when you get there.' : ''}</div>`;
+}
+function hoursEvText(l) {
+  const h = hoursOf(l); if (!h) return '';
+  if (!h.week) return `\nHours: ${h.raw}`;
+  const wd = runWd(); return `\nHours ${HOURS.SHORT[wd]}: ${HOURS.dayText(h.week, wd)} (from ${h.src})`;
+}
+const gmapsPlace = l => 'https://www.google.com/maps/search/?api=1&query=' + encodeURIComponent(l.n + ', ' + (l.a || ''));
+function hoursBox(l) {
+  const h = hoursOf(l), now = new Date(), wd = HOURS.wdOf(now), min = now.getHours() * 60 + now.getMinutes();
+  let top = 'Hours not known yet', cls = '', wk = '';
+  if (h && h.week) {
+    const st = HOURS.at(h.week, wd, min);
+    if (st.unknown) top = 'Today\'s hours not listed';
+    else if (st.open) { top = st.late ? 'Open now, till late' : 'Open now until ' + HOURS.fmt(st.until); cls = 'open'; }
+    else if (st.closedAllDay) { top = 'Closed today'; cls = 'closed'; }
+    else if (st.opens != null) { top = 'Closed now, opens ' + HOURS.fmt(st.opens); cls = 'closed'; }
+    else { top = 'Closed for the day'; cls = 'closed'; }
+    wk = HOURS.weekText(h.week);
+  } else if (h) { top = 'Hours as listed'; wk = h.raw; }
+  const mine = !!MYH[vidOf(l)];
+  return `<div class="hbox" id="hbox"><span class="now ${cls}">${top}</span>${wk ? `<small>${esc(wk)}</small>` : ''}${h ? `<small>From ${esc(h.src)}</small>` : ''}
+    <div class="hbtns"><button onclick="editHours('${jsId(l.id)}')">${mine ? 'Edit hours' : h ? 'Correct these hours' : 'Note the hours'}</button>
+      <a target="_blank" rel="noopener" href="${gmapsPlace(l)}">Check on Google Maps</a></div><div id="hbox-ed"></div></div>`;
+}
+const t24 = n => hm(((n % 1440) + 1440) % 1440);
+function editHours(id) {
+  const l = ALL.find(x => x.id === id), box = document.getElementById('hbox-ed'); if (!l || !box) return;
+  const h = hoursOf(l), w = h && h.week;
+  const row = i => {
+    const d = w && w[i], iv = d && d[0], shut = Array.isArray(d) && !d.length;
+    return `<div class="hr"><b>${HOURS.SHORT[i]}</b><input type="time" id="ho${i}" aria-label="${HOURS.SHORT[i]} opens" value="${iv ? t24(iv[0]) : ''}">` +
+      `<input type="time" id="hc${i}" aria-label="${HOURS.SHORT[i]} closes" value="${iv && iv[1] !== HOURS.LATE ? t24(iv[1]) : ''}">` +
+      `<label class="cl"><input type="checkbox" id="hx${i}" ${shut ? 'checked' : ''}> Closed</label></div>`;
+  };
+  box.innerHTML = `<div class="hed">
+    <div style="font-size:12px;color:var(--muted);margin-bottom:6px">Same hours most days? Set them here, tap Every day, then tick the days it's closed.</div>
+    <div class="quick"><input type="time" id="hq-o" aria-label="Opens" value="11:00"><input type="time" id="hq-c" aria-label="Closes" value="23:00"><button onclick="fillHours()">Every day</button></div>
+    <div class="hr" style="font-size:11px;color:var(--muted)"><span></span><span>Opens</span><span>Closes</span><span></span></div>
+    ${[0, 1, 2, 3, 4, 5, 6].map(row).join('')}
+    <div style="font-size:11px;color:var(--muted);margin-top:6px;line-height:1.5">Lunch and dinner sittings: put the whole span (12 to 9). No closing time means till late. Leave a day blank if you don't know it.</div>
+    <div class="save"><button class="pri" onclick="saveHours('${jsId(id)}')">Save hours</button>${MYH[vidOf(l)] ? `<button onclick="clearHours('${jsId(id)}')">Remove mine</button>` : ''}<button onclick="document.getElementById('hbox-ed').innerHTML=''">Cancel</button></div></div>`;
+}
+function fillHours() {
+  const o = document.getElementById('hq-o').value, c = document.getElementById('hq-c').value;
+  for (let i = 0; i < 7; i++) { document.getElementById('ho' + i).value = o; document.getElementById('hc' + i).value = c; document.getElementById('hx' + i).checked = false; }
+}
+function saveHours(id) {
+  const l = ALL.find(x => x.id === id); if (!l) return;
+  const toMin = t => { const [h, m] = t.split(':').map(Number); return h * 60 + m; };
+  const w = [];
+  for (let i = 0; i < 7; i++) {
+    if (document.getElementById('hx' + i).checked) { w.push([]); continue; }
+    const o = document.getElementById('ho' + i).value, c = document.getElementById('hc' + i).value;
+    if (!o) { w.push(null); continue; }
+    const a = toMin(o); let z = c ? toMin(c) : HOURS.LATE;
+    if (c && z <= a) z += 1440;   // closes after midnight
+    w.push([[a, z]]);
+  }
+  if (w.every(d => d === null)) { toast('Fill in at least one day, or tick Closed.'); return; }
+  MYH[vidOf(l)] = { w, f: today() }; store.set('vr_hours', MYH);
+  refreshHours(l); toast('Hours saved for ' + l.n);
+}
+function clearHours(id) { const l = ALL.find(x => x.id === id); if (!l) return; delete MYH[vidOf(l)]; store.set('vr_hours', MYH); refreshHours(l); }
+function refreshHours(l) { const b = document.getElementById('hbox'); if (b) b.outerHTML = hoursBox(l); }
+function openHours(id) {
+  const l = ALL.find(x => x.id === id); if (!l) return;
+  showOverlay();
+  document.getElementById('run-title').textContent = 'Opening hours';
+  document.getElementById('run-body').innerHTML = `<div class="card"><h2>${esc(l.n)}</h2><div class="addr">${esc(l.a || '')}</div><h4>Opening hours</h4>${hoursBox(l)}</div>
+    <button class="bigbtn ghost" onclick="closeRun()">Done</button>`;
+  if (!hoursOf(l)) editHours(id);
+}
+function hoursCardHtml() {
+  const osm = ALL.filter(l => l.oh && !MYH[vidOf(l)]).length, mine = Object.keys(MYH).length;
+  return `<div class="card"><h4 style="margin-top:0">Opening hours</h4>
+    <div class="addr" style="font-size:13px;line-height:1.6">Known for ${osm + mine} of ${ALL.length} venues: ${osm} from OpenStreetMap, ${mine} you noted. OpenStreetMap hours refresh every Monday; yours are saved on this phone and go in your backup.<br>
+    <span style="font-size:11px">Opening hours from OpenStreetMap, © OpenStreetMap contributors (ODbL).</span></div></div>`;
+}
+
 let KIT = store.get('vr_kit', {});
 function kitItems() {
   const seq = planStops(), cats = new Set(seq.map(l => l.cat)), items = [];
@@ -1047,7 +1196,7 @@ function renderReport(off) {
 }
 
 // ---------- Backup and restore ----------
-const BK_KEYS = ['vr_log','vr_contacts','vr_best','vr_miles','vr_settings','vr_plan','vr_run','vr_cal','vr_pri','vr_hide_types','vr_day','vr_kit','vm_edits','vm_added'];
+const BK_KEYS = ['vr_log','vr_contacts','vr_best','vr_miles','vr_settings','vr_plan','vr_run','vr_cal','vr_pri','vr_hide_types','vr_day','vr_kit','vr_hours','vm_edits','vm_added'];
 function backup() {
   const data = { app: 'via-nova-route-planner', saved: new Date().toISOString(), keys: {} };
   BK_KEYS.forEach(k => { const v = localStorage.getItem(k); if (v != null) data.keys[k] = v; });
@@ -1087,6 +1236,7 @@ function openMore() {
       <div class="addr" style="font-size:13px;margin-bottom:8px">Your visit log, contacts, best times and mileage live in this phone's browser. Back up weekly: on the Pixel, Back up now opens the share sheet, so pick Drive and it saves straight there. ${last ? 'Last backup ' + dmy(last) + '.' : 'No backup yet.'}</div>
       <button class="bigbtn next" onclick="backup()">Back up now</button>
       <label class="bigbtn ghost" style="margin-bottom:0">Restore from a backup<input type="file" accept=".json,application/json" style="display:none" onchange="this.files[0]&&restore(this.files[0])"></label></div>
+    ${hoursCardHtml()}
     <div class="card"><h4 style="margin-top:0">Settings</h4>
       <label style="font-size:12px;color:var(--muted)">Your name (goes in the By column)<input class="fld" value="${esc(SET.name)}" onchange="saveSet('name',this.value.trim())"></label>
       <label style="font-size:12px;color:var(--muted)">Send orders and reports to (mobile)<input class="fld" type="tel" value="${esc(SET.orderPhone)}" onchange="saveSet('orderPhone',this.value.trim())"></label>

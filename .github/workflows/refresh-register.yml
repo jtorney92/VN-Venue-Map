@@ -1,8 +1,11 @@
-# Monthly venue refresh. Prepared by Josh Torney.
-# Checks data.vic.gov.au every Monday morning for a new liquor licence register. When there is one, it
-# merges it into locations.json (see tools/refresh_register.py), notes the changes in REGISTER_UPDATES.md
-# and pushes, so the map and route planner pick it up. Run it by hand from the Actions tab with "Run workflow".
-name: Monthly venue refresh
+# Weekly venue refresh. Prepared by Josh Torney.
+# Every Monday morning:
+#  1. checks data.vic.gov.au for a new liquor licence register and, when there is one, merges it into
+#     locations.json (see tools/refresh_register.py) and notes the changes in REGISTER_UPDATES.md
+#  2. pulls opening hours from OpenStreetMap for every venue (see tools/osm_hours.py). Free, no key.
+# Then pushes anything that changed, so the map and route planner pick it up.
+# Run it by hand from the Actions tab: Weekly venue refresh, Run workflow.
+name: Weekly venue refresh
 
 on:
   schedule:
@@ -15,7 +18,7 @@ permissions:
 jobs:
   refresh:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -24,12 +27,16 @@ jobs:
       - name: Install
         run: pip install pandas openpyxl
       - name: Merge the latest register
+        continue-on-error: true
         run: python tools/refresh_register.py
+      - name: Opening hours from OpenStreetMap
+        continue-on-error: true
+        run: python tools/osm_hours.py
       - name: Publish any changes
         run: |
-          if git diff --quiet && [ -z "$(git status --porcelain)" ]; then echo "No new register, nothing to publish"; exit 0; fi
+          if [ -z "$(git status --porcelain)" ]; then echo "Nothing new this week"; exit 0; fi
           git config user.name "Josh Torney"
           git config user.email "jtorney92@users.noreply.github.com"
-          git add locations.json tools/register_state.json REGISTER_UPDATES.md
-          git commit -m "Venue refresh: $(python -c "import json;print(json.load(open('tools/register_state.json'))['last_file'])")"
+          git add -A locations.json tools/ REGISTER_UPDATES.md
+          git commit -m "Weekly venue refresh $(date +%Y-%m-%d)"
           git push

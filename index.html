@@ -12,6 +12,8 @@
 <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.css"/>
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <script src="https://unpkg.com/leaflet.markercluster@1.5.3/dist/leaflet.markercluster.js"></script>
+<script src="google.js"></script>
+<script src="hours.js"></script>
 <style>
 :root {
   --bg:#14182b; --panel:#1b2140; --panel2:#232a4f; --line:#2c355f; --ink:#e8eaf3; --muted:#8d94b3; --accent:#e94560;
@@ -110,7 +112,7 @@ section h3 { font-size:10px; text-transform:uppercase; letter-spacing:.08em; col
 
 <script>
 // ---------- Config ----------
-const GOOGLE_KEY = 'AIzaSyCPygfUd00ELGEZX9zFYg3fZvZ8X-u3CmM';
+// The Google key is not stored here: it's pasted once per device and every call is capped (see google.js).
 const HOME_VIEW = { center:[-38.16, 144.38], zoom:11 };   // Geelong + surrounds
 const CATS = {
   'Bar':                 '#9c6ade',
@@ -226,9 +228,21 @@ function popupHtml(l) {
     (l.lic ? '<br><span style="color:#888">Licence: '+esc(l.lic)+(l.cap ? ' &middot; capacity '+l.cap : '')+'</span>' : '') +
     ((l.tier || l.zone) ? '<br><span style="color:#888">'+(l.tier ? 'Priority '+esc(l.tier) : '')+(l.tier && l.zone ? ' &middot; ' : '')+(l.zone ? esc(l.zone) : '')+'</span>' : '') +
     (l.note ? '<br><i>'+esc(l.note)+'</i>' : '') +
+    (hoursText(l) ? '<br><span style="color:#888">Hours: '+esc(hoursText(l))+'</span>' : '') +
     '<div class="pop-actions">'+st+'</div>' +
     '<div class="pop-actions"><a href="https://www.google.com/maps/search/?api=1&query='+q+'" target="_blank" rel="noopener">Google Maps</a>' +
     '<button onclick="openEditor(\''+l.id.replace(/'/g,"\\'")+'\')">Edit</button></div>';
+}
+
+// Opening hours: ones you noted in the route planner on this device first, then OpenStreetMap's
+let _myh = null, _myt = 0;
+function hoursText(l) {
+  if (!_myh || Date.now() - _myt > 2000) { _myh = store.get('vr_hours', {}); _myt = Date.now(); }   // read once per export, not per row
+  const mine = _myh[l.vid || l.id];
+  if (mine && mine.w) return HOURS.weekText(mine.w) + ' (you noted)';
+  if (!l.oh) return '';
+  const w = HOURS.parseOsm(l.oh);
+  return w ? HOURS.weekText(w) : l.oh;
 }
 
 function visible(l) { return !hiddenCats.has(l.cat) && !hiddenStatus.has(l.st); }
@@ -278,6 +292,7 @@ function homePanel() {
     '<p class="muted">Click a suburb to see its venues and search for new ones. Click any pin to mark it Contacted or Stockist.</p>' +
     '<button class="btn btn-primary" onclick="findVenues(null)">Find venues in current map view</button>' +
     '<button class="btn btn-ghost" onclick="findVenues(null, GIFTING_QUERIES)">Find corporate gifting prospects in view</button>' +
+    '<div id="find-out"></div>' + keyBoxHtml() +
     '<button class="btn btn-ghost" onclick="openEditor(null)">+ Add a venue</button>' +
     '<button class="btn btn-ghost" onclick="exportXLSX(LOCS.filter(visible), \'Venues\')">Export showing venues (XLSX)</button>' +
     '<button class="btn btn-ghost" onclick="map.setView(HOME_VIEW.center, HOME_VIEW.zoom)">Back to Geelong</button>' +
@@ -295,7 +310,7 @@ function suburbPanel() {
     '<button class="btn btn-ghost" onclick="findVenues(selectedSuburb, GIFTING_QUERIES)">Find corporate gifting prospects here</button>' +
     '<button class="btn btn-ghost" onclick="exportXLSX(currentSuburbList(), selectedSuburb.name)">Export this suburb (XLSX)</button>' +
     '<button class="btn btn-ghost" onclick="clearSuburb()">Clear selection</button>' +
-    '<div id="find-out"></div>' +
+    '<div id="find-out"></div>' + keyBoxHtml() +
     '<div style="margin-top:12px">' + inside.map(l =>
       '<div class="loc-row" onclick="flyTo(\''+l.id.replace(/'/g,"\\'")+'\')"><span class="dot" style="background:'+(CATS[l.cat]||CATS.Other)+'"></span><div>'+esc(l.n)+
       (l.st!=='available' ? ' <small style="color:'+(l.st==='stockist'?'var(--gold)':'#fff')+'">'+STATUSES[l.st]+'</small>' : '')+
@@ -374,9 +389,36 @@ async function geocode(addr) {
   return null;
 }
 
+// ---------- Google key and usage (see google.js) ----------
+function keyBoxHtml() { return '<div id="gkey" class="muted" style="margin-top:10px">' + keyBoxInner(false) + '</div>'; }
+function keyBoxInner(edit) {
+  const has = !!GG.key(), u = GG.usage().find, L = GG.LIMITS.find;
+  if (has && !edit) return 'Google searches on this device: ' + u.month + ' of ' + L.month + ' this month (' + Math.floor((L.month - u.month) / FINDER_QUERIES.length) + ' more finds). ' +
+    '<a href="#" onclick="showKeyBox(true);return false" style="color:var(--muted)">Google key</a>';
+  return (has ? 'Replace the Google key on this device:' : 'Find venues needs your Google key. It\'s saved in this browser only, never in the code.') +
+    '<input id="gkey-in" type="password" autocomplete="off" placeholder="AIza..." style="width:100%;margin-top:6px;padding:7px;background:var(--panel2);color:var(--ink);border:1px solid var(--line);border-radius:6px">' +
+    '<button class="btn btn-ghost" onclick="saveKey()">Save key</button>' + (has ? '<button class="btn btn-ghost" onclick="saveKey(true)">Remove key from this device</button>' : '') +
+    '<div id="gkey-msg"></div>';
+}
+function showKeyBox(edit) { const b = document.getElementById('gkey'); if (b) b.innerHTML = keyBoxInner(edit); }
+function refreshKeyBox() { showKeyBox(false); }
+function saveKey(remove) {
+  const m = GG.setKey(remove ? '' : (document.getElementById('gkey-in') || {}).value);
+  if (m) { document.getElementById('gkey-msg').textContent = m; return; }
+  refreshKeyBox(); const o = document.getElementById('find-out'); if (o) o.innerHTML = '';
+}
+
 // ---------- Venue finder (Google Places, your API key) ----------
 async function findVenues(sub, querySet) {
   const QUERIES = querySet || FINDER_QUERIES;
+  const out = document.getElementById('find-out');
+  const say = (m) => { if (out) out.innerHTML = '<p class="muted" style="color:var(--accent)">' + esc(m) + '</p>'; };
+  if (!GG.key()) { showKeyBox(true); say('Paste your Google key below first. It stays in this browser only.'); return; }
+  if (GG.left('find') < QUERIES.length) {
+    const u = GG.usage().find, L = GG.LIMITS.find;
+    say('Not enough Google searches left on this device for that (' + QUERIES.length + ' needed; ' + u.day + ' of ' + L.day + ' used today, ' + u.month + ' of ' + L.month + ' this month). This limit keeps you inside Google\'s free allowance.');
+    return;
+  }
   const bounds = sub ? sub.layer.getBounds() : map.getBounds();
   const label = sub ? sub.name : 'this area';
   const btn = document.getElementById('find-btn');
@@ -386,13 +428,14 @@ async function findVenues(sub, querySet) {
   const seen = new Set(), results = [];
   for (const [q, cat] of QUERIES) {
     try {
-      const r = await fetch('https://places.googleapis.com/v1/places:searchText', {
+      const r = await GG.call('find', 'https://places.googleapis.com/v1/places:searchText', {
         method:'POST',
-        headers:{ 'Content-Type':'application/json', 'X-Goog-Api-Key':GOOGLE_KEY,
+        headers:{ 'Content-Type':'application/json',
           'X-Goog-FieldMask':'places.id,places.displayName,places.formattedAddress,places.location,places.nationalPhoneNumber,places.websiteUri,places.primaryType,places.primaryTypeDisplayName,places.businessStatus' },
         body: JSON.stringify({ textQuery: q + (sub ? ' ' + sub.name : '') + ' Victoria', locationRestriction:{ rectangle:rect }, maxResultCount:20 }),
       });
       if (!r.ok) {
+        if (r.status === 429) throw new Error('Google says too many requests right now (your per-minute limit). Try again in a minute.');
         if (r.status === 403 || r.status === 400) {
           let reason = '';
           try { const ej = await r.json(); reason = (ej.error && (ej.error.message || ej.error.status)) || ''; } catch(e) {}
@@ -413,7 +456,7 @@ async function findVenues(sub, querySet) {
       });
     } catch(err) {
       if (btn) { btn.disabled = false; btn.textContent = 'Find new venues here'; }
-      document.getElementById('find-out') && (document.getElementById('find-out').innerHTML = '<p class="muted" style="color:var(--accent)">'+esc(err.message)+'</p>');
+      say(err.message); refreshKeyBox();
       return;
     }
   }
@@ -421,9 +464,9 @@ async function findVenues(sub, querySet) {
   results.forEach(v => { v.onMap = LOCS.some(l => near(l, v, 0.15) && simName(l.n, v.n)); });
   foundVenues = results;
   showFound();
-  if (!sub) { homePanel(); document.getElementById('panel').insertAdjacentHTML('beforeend', '<div id="find-out"></div>'); }
+  if (!sub) homePanel();
   if (btn) { btn.disabled = false; btn.textContent = 'Find new venues here'; }
-  renderFindResults();
+  renderFindResults(); refreshKeyBox();
 }
 function near(a, b, km) {
   const dLat = (a.lat-b.lat)*111, dLng = (a.lng-b.lng)*111*Math.cos(a.lat*Math.PI/180);
@@ -477,8 +520,8 @@ function loadXLSX() {
 async function exportXLSX(list, title) {
   if (!list.length) { alert('Nothing to export with the current filters.'); return; }
   await loadXLSX();
-  const rows = [['Venue ID','Venue','Type','Status','Priority','Route day','Suburb','Address','Liquor licence','Patron capacity','Notes','Latitude','Longitude','Google Maps']];
-  list.slice().sort((a,b) => a.n.localeCompare(b.n)).forEach(l => rows.push([l.vid || '', l.n, l.cat, STATUSES[l.st] || 'Available', l.tier || '', l.zone || '', l.sub || '', l.a || '', l.lic || '', l.cap || '', l.note || [l.phone, l.web].filter(Boolean).join(' | '),
+  const rows = [['Venue ID','Venue','Type','Status','Priority','Route day','Suburb','Address','Liquor licence','Patron capacity','Opening hours','Notes','Latitude','Longitude','Google Maps']];
+  list.slice().sort((a,b) => a.n.localeCompare(b.n)).forEach(l => rows.push([l.vid || '', l.n, l.cat, STATUSES[l.st] || 'Available', l.tier || '', l.zone || '', l.sub || '', l.a || '', l.lic || '', l.cap || '', hoursText(l), l.note || [l.phone, l.web].filter(Boolean).join(' | '),
     l.lat, l.lng, 'https://www.google.com/maps/search/?api=1&query=' + encodeURIComponent(l.n + ' ' + (l.a||''))]));
   const name = (title || 'Venues').replace(/[^A-Za-z0-9]+/g,'_') + '_' + new Date().toISOString().slice(0,10);
   if (typeof XLSX === 'undefined') {
@@ -493,7 +536,7 @@ async function exportXLSX(list, title) {
 }
 function exportLocationsJSON() {
   const out = LOCS.map(l => { const o = { n:l.n, a:l.a||'', lat:Math.round(l.lat*1e5)/1e5, lng:Math.round(l.lng*1e5)/1e5, cat:l.cat, st:l.st };
-    ['note','lic','cap','src','lno','vid','tier','zone','region','sub'].forEach(k => { if (l[k]) o[k] = l[k]; }); return o; })
+    ['note','lic','cap','src','lno','vid','tier','zone','region','sub','oh'].forEach(k => { if (l[k]) o[k] = l[k]; }); return o; })
     .sort((a,b) => a.n.toLowerCase().localeCompare(b.n.toLowerCase()));
   download(new Blob([JSON.stringify(out)], {type:'application/json'}), 'locations.json');
   if (confirm('Downloaded. Once you have uploaded it to the repo, clear the local changes on this device?')) {
