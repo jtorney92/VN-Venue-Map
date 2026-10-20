@@ -1,9 +1,10 @@
 // Via Nova Route Planner offline support. Prepared by Josh Torney.
 // Pages and the venue list: try the network first, fall back to the saved copy when there's no signal.
 // Map library and map tiles: use the saved copy first.
-const CACHE = 'vn-route-v2', TILES = 'vn-tiles-v1', MAX_TILES = 1500;
+const CACHE = 'vn-route-v3', TILES = 'vn-tiles-v1', MAX_TILES = 1500;
 const CORE = ['route.html', 'index.html', 'locations.json', 'suburbs.geojson', 'manifest.webmanifest', 'icon-192.png', 'icon-512.png',
-  'https://unpkg.com/leaflet@1.9.4/dist/leaflet.css', 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.js'];
+  'https://unpkg.com/leaflet@1.9.4/dist/leaflet.css', 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.js',
+  'https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.css', 'https://unpkg.com/leaflet.markercluster@1.5.3/dist/leaflet.markercluster.js'];
 self.addEventListener('install', e => {
   e.waitUntil(caches.open(CACHE).then(c => Promise.all(CORE.map(u => c.add(u).catch(() => {})))).then(() => self.skipWaiting()));
 });

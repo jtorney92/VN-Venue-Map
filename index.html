@@ -12,7 +12,6 @@
 <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.css"/>
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <script src="https://unpkg.com/leaflet.markercluster@1.5.3/dist/leaflet.markercluster.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <style>
 :root {
   --bg:#14182b; --panel:#1b2140; --panel2:#232a4f; --line:#2c355f; --ink:#e8eaf3; --muted:#8d94b3; --accent:#e94560;
@@ -92,7 +91,7 @@ section h3 { font-size:10px; text-transform:uppercase; letter-spacing:.08em; col
   <header>
     <h1 style="display:flex;align-items:center;gap:8px"><span>&#9679;</span> Venue Map <a href="route.html" style="margin-left:auto;font-size:11px;font-weight:600;padding:4px 9px;border-radius:6px;border:1px solid var(--line);background:var(--panel2);color:var(--ink);text-decoration:none">Route planner</a></h1>
     <div id="stats"></div>
-    <input id="search" type="text" placeholder="Search venue or suburb..." autocomplete="off">
+    <input id="search" type="text" placeholder="Search venue, suburb or licence number..." autocomplete="off">
     <div id="search-results"></div>
   </header>
   <div id="scroll">
@@ -466,10 +465,20 @@ function addAllFound() {
 function clearFound() { foundVenues = []; if (findLayer) map.removeLayer(findLayer); findLayer = null; refreshPanel(); }
 
 // ---------- Export ----------
-function exportXLSX(list, title) {
+// The spreadsheet library is only fetched the first time you export, so the map itself loads faster
+function loadXLSX() {
+  if (typeof XLSX !== 'undefined') return Promise.resolve(true);
+  return new Promise(res => {
+    const sc = document.createElement('script'); sc.src = 'https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js';
+    sc.onload = () => res(true); sc.onerror = () => res(false); document.head.appendChild(sc);
+    setTimeout(() => res(typeof XLSX !== 'undefined'), 15000);
+  });
+}
+async function exportXLSX(list, title) {
   if (!list.length) { alert('Nothing to export with the current filters.'); return; }
-  const rows = [['Venue','Type','Status','Address','Liquor licence','Patron capacity','Notes','Latitude','Longitude','Google Maps']];
-  list.slice().sort((a,b) => a.n.localeCompare(b.n)).forEach(l => rows.push([l.n, l.cat, STATUSES[l.st] || 'Available', l.a || '', l.lic || '', l.cap || '', l.note || [l.phone, l.web].filter(Boolean).join(' | '),
+  await loadXLSX();
+  const rows = [['Venue ID','Venue','Type','Status','Priority','Route day','Suburb','Address','Liquor licence','Patron capacity','Notes','Latitude','Longitude','Google Maps']];
+  list.slice().sort((a,b) => a.n.localeCompare(b.n)).forEach(l => rows.push([l.vid || '', l.n, l.cat, STATUSES[l.st] || 'Available', l.tier || '', l.zone || '', l.sub || '', l.a || '', l.lic || '', l.cap || '', l.note || [l.phone, l.web].filter(Boolean).join(' | '),
     l.lat, l.lng, 'https://www.google.com/maps/search/?api=1&query=' + encodeURIComponent(l.n + ' ' + (l.a||''))]));
   const name = (title || 'Venues').replace(/[^A-Za-z0-9]+/g,'_') + '_' + new Date().toISOString().slice(0,10);
   if (typeof XLSX === 'undefined') {
@@ -501,7 +510,7 @@ searchEl.addEventListener('input', () => {
   if (q.length < 2) { resEl.style.display = 'none'; return; }
   const hits = [];
   Object.keys(SUBURB_LAYERS).filter(s => s.toLowerCase().includes(q)).slice(0,4).forEach(s => hits.push('<div class="sr" onclick="pickSuburb(\''+s.replace(/'/g,"\\'")+'\')">'+esc(s)+'<small>Suburb</small></div>'));
-  LOCS.filter(l => l.n.toLowerCase().includes(q)).slice(0,10).forEach(l => hits.push('<div class="sr" onclick="resEl.style.display=\'none\';flyTo(\''+l.id.replace(/'/g,"\\'")+'\')">'+esc(l.n)+'<small>'+esc(l.cat)+(l.a ? ' &middot; '+esc(l.a) : '')+'</small></div>'));
+  LOCS.filter(l => l.n.toLowerCase().includes(q) || (/^\d{4,}$/.test(q) && String(l.vid || '').startsWith(q))).slice(0,10).forEach(l => hits.push('<div class="sr" onclick="resEl.style.display=\'none\';flyTo(\''+l.id.replace(/'/g,"\\'")+'\')">'+esc(l.n)+'<small>'+esc(l.cat)+(l.a ? ' &middot; '+esc(l.a) : '')+'</small></div>'));
   resEl.innerHTML = hits.join('') || '<div class="sr" style="cursor:default">No matches</div>';
   resEl.style.display = 'block';
 });
@@ -545,6 +554,7 @@ async function loadBoundaries() {
 }
 
 // ---------- Boot ----------
+if ('serviceWorker' in navigator && (location.protocol === 'https:' || location.hostname === 'localhost')) navigator.serviceWorker.register('sw.js').catch(() => {});
 (async function init() {
   const msg = document.getElementById('loader-msg');
   try {
