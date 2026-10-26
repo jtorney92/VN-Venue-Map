@@ -109,6 +109,7 @@ button { font-family:inherit; }
 #loader { position:fixed; inset:0; background:var(--bg); display:flex; align-items:center; justify-content:center; z-index:9999; color:var(--muted); font-size:13px; }
 
 @media (max-width:820px) {
+  .pc-only { display:none !important; }
   #top h1 { font-size:14px; }
   #week { grid-template-columns:repeat(6, 150px); padding:10px 12px; }
   #main { flex-direction:column; overflow-y:auto; }
@@ -213,6 +214,7 @@ button { font-family:inherit; }
   <button class="go" id="plan-start" onclick="startRun()">Start run</button>
   <button class="clr" onclick="openCal()">Calendar</button>
   <button class="clr" onclick="openKit()">Kit</button>
+  <button class="clr pc-only" onclick="openSend()">Send to phone</button>
   <a class="clr" id="plan-go" target="_blank" rel="noopener">Google Maps</a>
   <button class="clr" onclick="clearPlan()">Clear</button>
 </div>
@@ -745,6 +747,47 @@ function addDetour(d) {
 }
 function skipStop() { RUN.idx++; store.set('vr_run', RUN); renderStop(); }
 
+// ---------- Plan on the PC, run on the phone ----------
+// The day's plan travels in a link: in Firefox on the PC, right-click it, Send Link to Device, and the Pixel
+// opens the planner with those stops loaded. Notes, hours and contacts travel by backup instead (More).
+function planLink() {
+  const u = new URL(location.href.split('#')[0].split('?')[0]);
+  u.searchParams.set('plan', JSON.stringify(PLAN)); u.searchParams.set('day', day);
+  return u.toString();
+}
+function openSend() {
+  const seq = planStops(); if (!seq.length) return;
+  showOverlay();
+  document.getElementById('run-title').textContent = 'Send this plan to your phone';
+  document.getElementById('run-body').innerHTML = `
+    <div class="card"><h4 style="margin-top:0">${seq.length} stop${seq.length === 1 ? '' : 's'}</h4>
+      ${seq.map((l, i) => `<div class="sumrow">${i + 1}. ${esc(l.n)} <span style="color:var(--muted)">· ${esc(l.sub || '')}</span></div>`).join('')}</div>
+    <div class="card"><h4 style="margin-top:0">Send it</h4>
+      <div class="hint" style="font-size:14px">Right-click this link, choose <b>Send Link to Device</b>, then your Pixel. Tap the notification on the phone and the planner opens with these stops loaded.</div>
+      <p style="margin:12px 0"><a id="plan-link" href="${esc(planLink())}" style="color:#8fb0ff;font-weight:600">Via Nova plan: ${seq.length} stops</a></p>
+      <button class="bigbtn ghost" onclick="copyPlanLink()">Copy the link instead</button>
+      <div class="addr" style="font-size:12px">Notes, hours and contacts you've added on the PC don't go in the link. Move those with Back up now and Bring in a backup, under More.</div></div>
+    <button class="bigbtn ghost" onclick="closeRun()">Close</button>`;
+}
+async function copyPlanLink() {
+  try { await navigator.clipboard.writeText(planLink()); toast('Link copied. Paste it into a message to yourself.'); }
+  catch (e) { prompt('Copy this link', planLink()); }
+}
+function takePlanFromLink() {
+  const q = new URLSearchParams(location.search), raw = q.get('plan'); if (!raw) return;
+  try { history.replaceState(history.state, '', location.pathname); } catch (e) {}   // so a reload doesn't load it twice
+  let ids; try { ids = JSON.parse(raw); } catch (e) { return; }
+  if (!Array.isArray(ids)) return;
+  const ok = ids.filter(id => ALL.some(l => l.id === id)), missing = ids.length - ok.length;
+  if (!ok.length) { alert('None of those venues are in this phone\'s list yet. If you added them on the PC, bring in a backup from the PC first.'); return; }
+  if (runLive()) { alert('A run is going on this phone. Finish or end it, then open the link again.'); return; }
+  if (PLAN.length && JSON.stringify(PLAN) !== JSON.stringify(ok) && !confirm(`Swap this phone's plan (${PLAN.length} stop${PLAN.length === 1 ? '' : 's'}) for the ${ok.length} sent from your PC?`)) return;
+  PLAN = ok; SUGG = {}; store.set('vr_plan', PLAN);
+  const d = q.get('day'); if (d && DAYS.some(x => x.key === d)) { day = d; store.set('vr_day', d); }
+  renderAll(true);
+  toast(`Plan loaded: ${ok.length} stops` + (missing ? `. ${missing} added only on the PC didn't come across: bring in a backup for those` : ''));
+}
+
 // ---------- On the road: one tap per stop, only while parked ----------
 // RUN.wz is the stop Waze was last sent to. Until you've left for a stop, the top button sends you there.
 // Once Waze has taken you there it becomes "Done here? Waze to the next one", and the visit waits in the
@@ -1256,13 +1299,59 @@ function backup() {
 function restore(file) {
   const r = new FileReader();
   r.onload = () => {
-    try {
-      const d = JSON.parse(r.result); if (d.app !== 'via-nova-route-planner') throw new Error();
-      if (!confirm('Replace everything on this device with the backup from ' + d.saved.slice(0, 10) + '?')) return;
-      Object.entries(d.keys).forEach(([k, v]) => localStorage.setItem(k, v)); location.reload();
-    } catch (e) { alert('That file is not a route planner backup.'); }
+    let d;
+    try { d = JSON.parse(r.result); if (d.app !== 'via-nova-route-planner') throw new Error(); }
+    catch (e) { alert('That file is not a route planner backup.'); return; }
+    if (!confirm('Bring in the backup from ' + dmy(d.saved.slice(0, 10)) + '? It adds to what\'s on this device, so nothing here is lost.')) return;
+    Object.entries(d.keys).forEach(([k, v]) => {
+      let theirs, mine;
+      try { theirs = JSON.parse(v); } catch (e) { return; }
+      try { mine = JSON.parse(localStorage.getItem(k)); } catch (e) { mine = null; }
+      try { localStorage.setItem(k, JSON.stringify(mine == null ? theirs : mergeKey(k, mine, theirs))); } catch (e) {}
+    });
+    location.reload();
   };
   r.readAsText(file);
+}
+// Bringing a backup in from another device (the PC, say) combines the two instead of overwriting: visits,
+// contacts and added venues are joined up without doubles; where both have the same thing, the newer wins
+// (hours by the date noted, contacts by when saved, venue status by how far along it is).
+function mergeKey(k, mine, theirs) {
+  const obj = x => x && typeof x === 'object' && !Array.isArray(x);
+  if (k === 'vr_log' && Array.isArray(mine) && Array.isArray(theirs)) {
+    const key = e => [e.date, e.vid, e.act, e.outcome, e.contact].join('|'), seen = new Set(mine.map(key));
+    return mine.concat(theirs.filter(e => !seen.has(key(e)))).sort((a, b) => (a.date || '').localeCompare(b.date || ''));
+  }
+  if (k === 'vm_added' && Array.isArray(mine) && Array.isArray(theirs)) {
+    const key = a => (a.n + '|' + a.lat + '|' + a.lng).toLowerCase(), seen = new Set(mine.map(key));
+    return mine.concat(theirs.filter(a => !seen.has(key(a))));
+  }
+  if (!obj(mine) || !obj(theirs)) return mine;   // device view settings, plan, run: keep this device's
+  const out = { ...mine };
+  if (k === 'vr_contacts') {
+    for (const v in theirs) {
+      const seen = new Set();
+      out[v] = [...(mine[v] || []), ...(theirs[v] || [])].sort((a, b) => (b.updated || '').localeCompare(a.updated || ''))
+        .filter(c => { const id = [c.name, c.phone, c.email].join('|').toLowerCase(); return seen.has(id) ? false : seen.add(id); });
+    }
+  } else if (k === 'vr_hours') {
+    for (const v in theirs) if (!out[v] || (theirs[v].f || '') > (out[v].f || '')) out[v] = theirs[v];
+  } else if (k === 'vr_best') {
+    for (const v in theirs) if (theirs[v]) out[v] = theirs[v];
+  } else if (k === 'vm_edits') {
+    const rank = { available: 0, contacted: 1, stockist: 2 };
+    for (const id in theirs) {
+      const a = mine[id] || {}, b = theirs[id] || {};
+      out[id] = { ...a, ...b, st: (rank[a.st] || 0) >= (rank[b.st] || 0) ? (a.st || b.st) : b.st,
+        note: (a.note || '').length >= (b.note || '').length ? (a.note || b.note) : b.note };
+      if (!out[id].st) delete out[id].st; if (!out[id].note) delete out[id].note;
+    }
+  } else if (k === 'vr_miles') {
+    for (const d in theirs) out[d] = { ...theirs[d], ...(mine[d] || {}) };
+  } else {   // settings, kit: fill in anything this device doesn't have
+    for (const x in theirs) if (out[x] == null || out[x] === '') out[x] = theirs[x];
+  }
+  return out;
 }
 function backupNag() {
   if (!LOG.length) return '';
@@ -1281,10 +1370,11 @@ function openMore() {
       <button class="bigbtn ghost" onclick="renderReport(0)">Weekly report for the owner</button>
       <button class="bigbtn ghost" onclick="milesCsv()">Download the mileage log (CSV)</button>
       <button class="bigbtn ghost" style="margin-bottom:0" onclick="contactsCsv()">Download all contacts (CSV)</button></div>
-    <div class="card"><h4 style="margin-top:0">Backup</h4>
-      <div class="addr" style="font-size:13px;margin-bottom:8px">Your visit log, contacts, best times and mileage live in this phone's browser. Back up weekly: on the Pixel, Back up now opens the share sheet, so pick Drive and it saves straight there. ${last ? 'Last backup ' + dmy(last) + '.' : 'No backup yet.'}</div>
+    <div class="card"><h4 style="margin-top:0">Backup, and moving between PC and phone</h4>
+      <div class="addr" style="font-size:13px;margin-bottom:8px">Your visit log, contacts, best times, hours you've noted and mileage live in this browser, separately on each device. Back up weekly: on the Pixel, Back up now opens the share sheet, so pick Drive and it saves straight there. ${last ? 'Last backup ' + dmy(last) + '.' : 'No backup yet.'}<br><br>
+        To move what you've set up on the PC across to the phone (or back): Back up now on one, save it to Drive, then Bring in a backup on the other. It adds to what's there, so nothing on either is lost.</div>
       <button class="bigbtn next" onclick="backup()">Back up now</button>
-      <label class="bigbtn ghost" style="margin-bottom:0">Restore from a backup<input type="file" accept=".json,application/json" style="display:none" onchange="this.files[0]&&restore(this.files[0])"></label></div>
+      <label class="bigbtn ghost" style="margin-bottom:0">Bring in a backup<input type="file" accept=".json,application/json" style="display:none" onchange="this.files[0]&&restore(this.files[0])"></label></div>
     ${hoursCardHtml()}
     <div class="card"><h4 style="margin-top:0">Settings</h4>
       <label style="font-size:12px;color:var(--muted)">Your name (goes in the By column)<input class="fld" value="${esc(SET.name)}" onchange="saveSet('name',this.value.trim())"></label>
@@ -1311,6 +1401,7 @@ if ('serviceWorker' in navigator && (location.protocol === 'https:' || location.
   if (!DAYS.some(d => d.key === day)) day = DAYS[0].key;
   renderAll(true);
   document.getElementById('loader').remove();
+  takePlanFromLink();
   if (RUN && RUN.date === today() && RUN.idx < RUN.ids.length) openRun();
   else if (RUN && (RUN.later || []).length) { showOverlay(); showSummary(); }
 })();
