@@ -599,7 +599,7 @@ function startRun() {
   const twd = HOURS.wdOf(new Date()), shut = seq.filter(l => closedOn(l, twd));
   if (shut.length && seq.length > shut.length && confirm(`${shut.map(l => l.n).join(', ')} ${shut.length === 1 ? 'is' : 'are'} closed today. Leave ${shut.length === 1 ? 'it' : 'them'} out of the run?`))
     seq = seq.filter(l => !shut.includes(l));
-  RUN = { date: today(), ids: seq.map(l => l.id), idx: 0, estKm: Math.round(planKm() * 1.3) }; store.set('vr_run', RUN);
+  RUN = { date: today(), ids: seq.map(l => l.id), idx: 0, estKm: Math.round(planKm() * 1.3), later: (RUN && RUN.later) || [] }; store.set('vr_run', RUN);
   const odo = prompt('Odometer reading as you leave (optional, for the mileage log)', '');
   if (odo && +odo) { MILES[today()] = { ...(MILES[today()] || {}), start: +odo }; store.set('vr_miles', MILES); }
   openRun();
@@ -611,25 +611,28 @@ function showOverlay() {
   if (!r.classList.contains('show')) { r.classList.add('show'); try { history.pushState({ vnOverlay: 1 }, ''); } catch (e) {} }
   document.getElementById('run-body').scrollTop = 0;
 }
-function hideOverlay() { document.getElementById('run').classList.remove('show'); renderAll(false); }
+function hideOverlay() { LOGID = null; document.getElementById('run').classList.remove('show'); renderAll(false); }
 window.addEventListener('popstate', () => { if (document.getElementById('run').classList.contains('show')) hideOverlay(); });
-function openRun() { showOverlay(); renderStop(); }
+function openRun() { LOGID = null; showOverlay(); renderStop(); }
 function closeRun() {
   if (history.state && history.state.vnOverlay) history.back();   // the popstate handler closes it
   else hideOverlay();
 }
 function renderStop() {
   const body = document.getElementById('run-body');
-  if (!RUN || RUN.idx >= RUN.ids.length) return showSummary();
-  const l = stopById(RUN.ids[RUN.idx]); if (!l) { RUN.idx++; store.set('vr_run', RUN); return renderStop(); }
+  if (!LOGID && (!RUN || RUN.idx >= RUN.ids.length)) return showSummary();
+  const logMode = !!LOGID;
+  const l = stopById(LOGID || RUN.ids[RUN.idx]);
+  if (!l) { if (logMode) { LOGID = null; return showSummary(); } RUN.idx++; store.set('vr_run', RUN); return renderStop(); }
   if (l.det) return renderDetour(l);
   pick = null;
   const p = pri(l), pt = pitchFor(l), cs = contactsOf(l), lastC = cs[0];
   const hist = LOG.filter(e => e.vid === vidOf(l)).slice(-3).reverse();
   const nextL = stopById(RUN.ids[RUN.idx + 1]);
-  document.getElementById('run-title').textContent = `Stop ${RUN.idx + 1} of ${RUN.ids.length}`;
+  document.getElementById('run-title').textContent = logMode ? 'Log a visit' : `Stop ${RUN.idx + 1} of ${RUN.ids.length}`;
   body.innerHTML = `
-    <div class="dots">${RUN.ids.map((_, i) => `<i class="${i < RUN.idx ? 'done' : i === RUN.idx ? 'now' : ''}"></i>`).join('')}</div>
+    ${logMode ? '' : `<div class="dots">${RUN.ids.map((_, i) => `<i class="${i < RUN.idx ? 'done' : i === RUN.idx ? 'now' : ''}"></i>`).join('')}</div>
+    <div id="road">${roadHtml(l)}</div>`}
     <div class="card">
       <span class="tag ${p}">${p === 'Stockist' ? 'Stockist' : 'Priority ' + p}</span>
       <h2 style="margin-top:8px">${esc(l.n)}</h2>
@@ -641,7 +644,6 @@ function renderStop() {
       ${bestHtml(l)}
       ${hist.length || l.note ? `<h4>Last time</h4>${hist.map(e => `<div class="hist"><small>${dmy(e.date)} · ${esc(e.act)}${e.contact ? ' · ' + esc(e.contact) : ''}</small>${esc(e.outcome || '')}</div>`).join('')}${l.note ? `<div class="hist"><small>Map note</small>${esc(l.note)}</div>` : ''}` : ''}
     </div>
-    <a class="bigbtn waze" href="${waze(l)}">Drive here with Waze</a>
     <div class="card">
       <h4 style="margin-top:0">How did it go?</h4>
       <div class="opts">${OUTCOMES.map(o => `<button class="opt" onclick="choose(this,'${o}')">${o}</button>`).join('')}</div>
@@ -658,10 +660,12 @@ function renderStop() {
       </div>
       <div id="r-err" style="color:var(--accent);font-size:13px;margin-top:8px;display:none">Pick how it went first.</div>
     </div>
+    ${logMode ? `<button class="bigbtn next" onclick="saveStop(false)">Save</button>
+    <button class="bigbtn ghost" onclick="LOGID=null;showSummary()">Back to the day summary</button>` : `
     <button class="bigbtn next" onclick="saveStop(true)">${nextL ? 'Save, then Waze to ' + esc(nextL.n) : 'Save and finish the day'}</button>
     <button class="bigbtn ghost" onclick="saveStop(false)">Save, stay on this page</button>
     <button class="bigbtn ghost" onclick="openDetour()">Add a stop before this one</button>
-    <button class="bigbtn ghost" onclick="skipStop()">Skip this stop</button>`;
+    <button class="bigbtn ghost" onclick="skipStop()">Skip this stop</button>`}`;
 }
 function choose(btn, o) {
   pick = o; document.querySelectorAll('.opt').forEach(b => b.classList.toggle('on', b === btn));
@@ -670,13 +674,14 @@ function choose(btn, o) {
 }
 function saveStop(go) {
   if (!pick) { document.getElementById('r-err').textContent = 'Pick how it went first.'; document.getElementById('r-err').style.display = ''; return; }
-  const l = ALL.find(x => x.id === RUN.ids[RUN.idx]);
+  const l = ALL.find(x => x.id === (LOGID || RUN.ids[RUN.idx]));
+  const later = LOGID ? (RUN.later || []).find(x => x.id === LOGID) : null;
   const v = id => document.getElementById(id).value.trim();
   const fu = v('r-fu') ? plusDays(+v('r-fu')) : '';
   const note = v('r-note');
   const ord = pick === 'Order' ? readOrder() : null;
   if (pick === 'Order' && !ord.units) { document.getElementById('r-err').textContent = 'Add the products ordered first.'; document.getElementById('r-err').style.display = ''; return; }
-  LOG.push({ date: today(), vid: vidOf(l), n: l.n, sub: l.sub || '', act: pick === 'Not in' ? 'Visit' : pick,
+  LOG.push({ date: later ? later.d : today(), vid: vidOf(l), n: l.n, sub: l.sub || '', act: pick === 'Not in' ? 'Visit' : pick,
     by: SET.name || 'Josh', contact: [v('r-contact'), v('r-phone'), v('r-email')].filter(Boolean).join(' '), products: ord ? ord.text : '', val: ord ? ord.total : '', outcome: pick === 'Not in' ? ('Not in. ' + note).trim() : note,
     bottles: ord ? ord.units : '', next: v('r-next') || (fu ? 'Follow up' : ''), fu });
   store.set('vr_log', LOG);
@@ -687,11 +692,16 @@ function saveStop(go) {
     EDITS[l.id] = { ...(EDITS[l.id] || {}), st, note: l.note ? l.note + ' | ' + stamp : stamp };
     l.st = st; l.note = EDITS[l.id].note; store.set('vm_edits', EDITS);
   }
+  if (LOGID) {   // a visit logged from the day summary: tick it off and go back there
+    RUN.later = (RUN.later || []).filter(x => x.id !== LOGID); LOGID = null; store.set('vr_run', RUN);
+    if (ord) return renderOrderSaved(LOG[LOG.length - 1], l, true);
+    toast('Logged ' + l.n); return showSummary();
+  }
   RUN.idx++; store.set('vr_run', RUN);
   const nextL = stopById(RUN.ids[RUN.idx]);
   if (ord) return renderOrderSaved(LOG[LOG.length - 1], l);
   renderStop(); window.scrollTo(0, 0); document.getElementById('run-body').scrollTop = 0;
-  if (go && nextL) window.location.href = waze(nextL);
+  if (go && nextL) goWaze();
 }
 // ---------- Detours: drop in an extra stop mid-run (back to the distillery, a pickup, any address) ----------
 function renderDetour(d) {
@@ -699,15 +709,15 @@ function renderDetour(d) {
   document.getElementById('run-title').textContent = 'Extra stop';
   document.getElementById('run-body').innerHTML = `
     <div class="dots">${RUN.ids.map((_, i) => `<i class="${i < RUN.idx ? 'done' : i === RUN.idx ? 'now' : ''}"></i>`).join('')}</div>
+    <div id="road">${roadHtml(d)}</div>
     <div class="card"><span class="tag C">Extra stop</span><h2 style="margin-top:8px">${esc(d.n)}</h2><div class="addr">${esc(d.a)}</div></div>
-    <a class="bigbtn waze" href="${waze(d)}">Drive here with Waze</a>
     <button class="bigbtn next" onclick="doneDetour(true)">${nextL ? 'Done, Waze to ' + esc(nextL.n) : 'Done, finish the day'}</button>
     <button class="bigbtn ghost" onclick="doneDetour(false)">Remove this stop</button>`;
 }
 function doneDetour(go) {
   RUN.idx++; store.set('vr_run', RUN);
   const nextL = stopById(RUN.ids[RUN.idx]); renderStop();
-  if (go && nextL) window.location.href = waze(nextL);
+  if (go && nextL) goWaze();
 }
 function openDetour() {
   document.getElementById('run-title').textContent = 'Add a stop';
@@ -726,18 +736,52 @@ function detourSearch(q) {
   const hits = q.length < 2 ? [] : ALL.filter(l => (l.n + ' ' + (l.sub || '')).toLowerCase().includes(q)).slice(0, 6);
   document.getElementById('d-res').innerHTML = hits.map(l => `<div class="sumrow" style="cursor:pointer" onclick="addVenueStop('${jsId(l.id)}')"><b>${esc(l.n)}</b><br><span style="color:var(--muted)">${esc(l.a || '')}</span></div>`).join('');
 }
-function addVenueStop(id) { RUN.ids.splice(RUN.idx, 0, id); store.set('vr_run', RUN); renderStop(); const l = stopById(id); if (l) window.location.href = waze(l); }
+function addVenueStop(id) { RUN.ids.splice(RUN.idx, 0, id); store.set('vr_run', RUN); renderStop(); goWaze(); }
 function addDetour(d) {
   const id = 'd:' + Date.now().toString(36);
   RUN.det = RUN.det || {}; RUN.det[id] = { ...d, det: true };
   RUN.ids.splice(RUN.idx, 0, id); store.set('vr_run', RUN); renderStop();
-  window.location.href = waze(RUN.det[id]);
+  goWaze();
 }
 function skipStop() { RUN.idx++; store.set('vr_run', RUN); renderStop(); }
+
+// ---------- On the road: one tap per stop, only while parked ----------
+// RUN.wz is the stop Waze was last sent to. Until you've left for a stop, the top button sends you there.
+// Once Waze has taken you there it becomes "Done here? Waze to the next one", and the visit waits in the
+// day summary to be logged when it suits (RUN.later: [{ id, d: date of the visit }]).
+let LOGID = null;   // the visit being logged from the day summary
+function markWaze() { if (RUN) { RUN.wz = RUN.ids[RUN.idx]; store.set('vr_run', RUN); } setTimeout(refreshRoad, 400); }
+function goWaze() { const l = RUN && stopById(RUN.ids[RUN.idx]); if (!l) return; markWaze(); window.location.href = waze(l); }
+function roadHtml(l) {
+  if (RUN.wz !== RUN.ids[RUN.idx]) return `<a class="bigbtn waze" href="${waze(l)}" onclick="markWaze()">Drive here with Waze</a>`;
+  const back = `<div class="addr" style="text-align:center;margin:-2px 0 12px;font-size:12px"><a href="${waze(l)}" style="color:var(--muted)">Waze back to this stop</a></div>`;
+  if (l.det) return back;   // extra stops have their own Done button
+  const nextL = stopById(RUN.ids[RUN.idx + 1]);
+  return `<button class="bigbtn waze" onclick="logLater()">${nextL ? 'Done here? Waze to ' + esc(nextL.n) + ', log later' : 'Done here? Log it later, finish the day'}</button>` + back;
+}
+function refreshRoad() { const r = document.getElementById('road'), l = RUN && !LOGID && stopById(RUN.ids[RUN.idx]); if (r && l) r.innerHTML = roadHtml(l); }
+document.addEventListener('visibilitychange', () => { if (!document.hidden) refreshRoad(); });   // back from Waze
+function logLater() {
+  const id = RUN.ids[RUN.idx];
+  RUN.later = [...(RUN.later || []).filter(x => x.id !== id), { id, d: RUN.date || today() }];
+  RUN.idx++; store.set('vr_run', RUN);
+  renderStop(); document.getElementById('run-body').scrollTop = 0;
+  if (RUN.idx < RUN.ids.length) goWaze();
+}
+function logNow(id) { LOGID = id; renderStop(); document.getElementById('run-body').scrollTop = 0; }
+function laterHtml() {
+  const rows = ((RUN && RUN.later) || []).map(x => ({ ...x, l: stopById(x.id) })).filter(x => x.l);
+  if (!rows.length) return '';
+  return `<div class="card" style="border-color:var(--gold)"><h4 style="margin-top:0;color:var(--gold)">Still to log (${rows.length})</h4>
+    ${rows.map(x => `<div class="sumrow" style="display:flex;align-items:center;gap:10px"><div style="flex:1"><b>${esc(x.l.n)}</b>${x.d !== today() ? `<br><span style="color:var(--muted)">Visited ${dmy(x.d)}</span>` : ''}</div>
+      <button class="link-btn" onclick="logNow('${jsId(x.id)}')">Log it</button></div>`).join('')}</div>`;
+}
 function showSummary() {
   const rows = LOG.filter(e => e.date === today());
   document.getElementById('run-title').textContent = 'Day summary';
+  LOGID = null;
   document.getElementById('run-body').innerHTML = `
+    ${laterHtml()}
     <div class="card"><h2>${rows.length} stop${rows.length === 1 ? '' : 's'} logged today</h2>
       <div class="addr">Copy the rows, then paste into the first empty row of the Activity Log (column A).</div>
       ${rows.map(e => `<div class="sumrow"><b>${esc(e.n)}</b> · ${esc(e.act)}${e.bottles ? ' · ' + e.bottles + ' units' : ''}${e.val ? ' · $' + e.val : ''}<br><span style="color:var(--muted)">${esc(e.outcome || '')}${e.fu ? ' · follow up ' + dmy(e.fu) : ''}</span></div>`).join('')}
@@ -765,7 +809,11 @@ function downloadRows() {
   const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob(['﻿' + csv], { type:'text/csv' }));
   a.download = 'activity-' + today() + '.csv'; a.click();
 }
-function endRun() { RUN = null; store.set('vr_run', null); clearPlan(); closeRun(); }
+function endRun() {
+  const n = ((RUN && RUN.later) || []).length;
+  if (n && !confirm(`${n} visit${n === 1 ? ' is' : 's are'} still to log. End the run anyway? ${n === 1 ? 'It' : 'They'} won't be logged.`)) return;
+  RUN = null; store.set('vr_run', null); clearPlan(); closeRun();
+}
 
 // ---------- Calendar export ----------
 // The day's stops as calendar events, in driving order. On Android Auto, open the Calendar app on the car screen
@@ -946,7 +994,7 @@ function orderMessage(e, l) {
     (c ? `Contact: ${c.name}${c.phone ? ' ' + c.phone : ''}${c.email ? ' ' + c.email : ''}\n` : '') +
     `\n${e.products.split(', ').join('\n')}\n\nTotal ${money(e.val)} inc GST (${e.bottles} units)` + (e.outcome ? `\nNotes: ${e.outcome}` : '');
 }
-function renderOrderSaved(e, l) {
+function renderOrderSaved(e, l, fromLater) {
   const nextL = stopById(RUN.ids[RUN.idx]), msg = orderMessage(e, l);
   document.getElementById('run-title').textContent = 'Order saved';
   document.getElementById('run-body').innerHTML = `
@@ -955,8 +1003,9 @@ function renderOrderSaved(e, l) {
     <a class="bigbtn waze" href="sms:${telOf(SET.orderPhone)}?&body=${encodeURIComponent(msg)}">Text the order${SET.orderPhone ? '' : ' (pick the number)'}</a>
     <a class="bigbtn ghost" href="mailto:${encodeURIComponent(SET.orderEmail || '')}?subject=${encodeURIComponent('Order: ' + l.n)}&body=${encodeURIComponent(msg)}">Email the order</a>
     ${canShare ? `<button class="bigbtn ghost" onclick="shareText('Order: ${esc(jsId(l.n))}', document.getElementById('o-msg').value)">Share the order (WhatsApp, other apps)</button><textarea id="o-msg" style="position:absolute;left:-9999px">${esc(msg)}</textarea>` : ''}
-    ${nextL ? `<button class="bigbtn next" onclick="renderStop();window.location.href=waze(stopById(RUN.ids[RUN.idx]))">Waze to ${esc(nextL.n)}</button>` : `<button class="bigbtn next" onclick="renderStop()">Finish the day</button>`}
-    <button class="bigbtn ghost" onclick="renderStop()">Next stop, no Waze</button>
+    ${fromLater ? `<button class="bigbtn next" onclick="showSummary()">Back to the day summary</button>` :
+      nextL ? `<button class="bigbtn next" onclick="renderStop();goWaze()">Waze to ${esc(nextL.n)}</button>` : `<button class="bigbtn next" onclick="renderStop()">Finish the day</button>`}
+    ${fromLater ? '' : `<button class="bigbtn ghost" onclick="renderStop()">Next stop, no Waze</button>`}
     <div class="addr" style="font-size:12px;color:var(--muted)">Set who orders go to under More, Settings.</div>`;
 }
 
@@ -1263,6 +1312,7 @@ if ('serviceWorker' in navigator && (location.protocol === 'https:' || location.
   renderAll(true);
   document.getElementById('loader').remove();
   if (RUN && RUN.date === today() && RUN.idx < RUN.ids.length) openRun();
+  else if (RUN && (RUN.later || []).length) { showOverlay(); showSummary(); }
 })();
 </script>
 </body>
