@@ -475,7 +475,7 @@ function suggestRun() {
   const count = {}; picked.forEach(c => count[c.why] = (count[c.why] || 0) + 1);
   toast(`Suggested ${picked.length}: ` + Object.entries(count).map(([k, v]) => v + ' ' + k).join(', ') + (closedN ? `. Left out ${closedN} closed ${HOURS.SHORT[wd]}` : ''));
 }
-function clearPlan() { PLAN = []; SUGG = {}; if (runLive()) { RUN = null; store.set('vr_run', null); } store.set('vr_plan', PLAN); renderPlan(); renderList(); drawMap(false); renderFilters(ALL.filter(l => l.zone === day)); }
+function clearPlan() { if (RUN && RUN.practice) return endPractice(); PLAN = []; SUGG = {}; if (runLive()) { RUN = null; store.set('vr_run', null); } store.set('vr_plan', PLAN); renderPlan(); renderList(); drawMap(false); renderFilters(ALL.filter(l => l.zone === day)); }
 function planStops() {
   const left = PLAN.map(id => ALL.find(l => l.id === id)).filter(Boolean), seq = [];
   let p = BASE_PT;
@@ -486,7 +486,7 @@ function renderPlan() {
   const seq = planStops(), bar = document.getElementById('plan');
   bar.classList.toggle('show', seq.length > 0 || runLive());
   const sb = document.getElementById('plan-start');
-  if (sb) sb.textContent = runLive() ? `Resume run (stop ${RUN.idx + 1} of ${RUN.ids.length})` : 'Start run';
+  if (sb) sb.textContent = runLive() ? `Resume ${RUN.practice ? 'practice ' : ''}run (stop ${RUN.idx + 1} of ${RUN.ids.length})` : 'Start run';
   if (!seq.length) return;
   let tot = 0, p = BASE_PT; seq.forEach(l => { tot += km(p, [l.lat, l.lng]); p = [l.lat, l.lng]; }); tot += km(p, BASE_PT);
   document.getElementById('plan-n').textContent = seq.length + ' stop' + (seq.length === 1 ? '' : 's') + ' planned';
@@ -595,13 +595,13 @@ function pitchFor(l) {
 }
 
 const runLive = () => RUN && RUN.date === today() && RUN.idx < RUN.ids.length;
-function startRun() {
+function startRun(practice) {
   if (runLive()) return openRun();   // pick up where you left off
   let seq = planStops(); if (!seq.length) return;
   const twd = HOURS.wdOf(new Date()), shut = seq.filter(l => closedOn(l, twd));
   if (shut.length && seq.length > shut.length && confirm(`${shut.map(l => l.n).join(', ')} ${shut.length === 1 ? 'is' : 'are'} closed today. Leave ${shut.length === 1 ? 'it' : 'them'} out of the run?`))
     seq = seq.filter(l => !shut.includes(l));
-  RUN = { date: today(), ids: seq.map(l => l.id), idx: 0, estKm: Math.round(planKm() * 1.3), later: (RUN && RUN.later) || [] }; store.set('vr_run', RUN);
+  RUN = { date: today(), ids: seq.map(l => l.id), idx: 0, estKm: Math.round(planKm() * 1.3), later: (RUN && RUN.later) || [], practice: !!practice }; store.set('vr_run', RUN);
   const odo = prompt('Odometer reading as you leave (optional, for the mileage log)', '');
   if (odo && +odo) { MILES[today()] = { ...(MILES[today()] || {}), start: +odo }; store.set('vr_miles', MILES); }
   openRun();
@@ -631,7 +631,7 @@ function renderStop() {
   const p = pri(l), pt = pitchFor(l), cs = contactsOf(l), lastC = cs[0];
   const hist = LOG.filter(e => e.vid === vidOf(l)).slice(-3).reverse();
   const nextL = stopById(RUN.ids[RUN.idx + 1]);
-  document.getElementById('run-title').textContent = logMode ? 'Log a visit' : `Stop ${RUN.idx + 1} of ${RUN.ids.length}`;
+  document.getElementById('run-title').textContent = logMode ? 'Log a visit' : `Stop ${RUN.idx + 1} of ${RUN.ids.length}${RUN.practice ? ' · practice' : ''}`;
   body.innerHTML = `
     ${logMode ? '' : `<div class="dots">${RUN.ids.map((_, i) => `<i class="${i < RUN.idx ? 'done' : i === RUN.idx ? 'now' : ''}"></i>`).join('')}</div>
     <div id="road">${roadHtml(l)}</div>`}
@@ -747,6 +747,23 @@ function addDetour(d) {
 }
 function skipStop() { RUN.idx++; store.set('vr_run', RUN); renderStop(); }
 
+// ---------- Practice run: try the whole day without keeping anything ----------
+// Saves a copy of everything the planner keeps, runs the day as normal, and puts the copy back when the
+// practice ends (or the next day, if it's left open).
+function startPractice() {
+  if (runLive()) { alert('A run is already going. End it first.'); return; }
+  if (!planStops().length) { alert('Plan a few stops first (Suggest a run, or tick some venues), then start the practice.'); return; }
+  const snap = {}; BK_KEYS.forEach(k => { snap[k] = localStorage.getItem(k); });
+  try { localStorage.setItem('vr_practice', JSON.stringify({ date: today(), snap })); } catch (e) { alert('This browser won\'t save the copy, so the practice can\'t start.'); return; }
+  closeRun(); setTimeout(() => startRun(true), 350);
+}
+function endPractice(quiet) {
+  const p = store.get('vr_practice', null);
+  if (p && p.snap) BK_KEYS.forEach(k => { const v = p.snap[k]; try { v == null ? localStorage.removeItem(k) : localStorage.setItem(k, v); } catch (e) {} });
+  try { localStorage.removeItem('vr_practice'); } catch (e) {}
+  if (!quiet) { try { sessionStorage.setItem('vr_toast', 'Practice over: everything is back how it was.'); } catch (e) {} location.replace(location.pathname); }
+}
+
 // ---------- Plan on the PC, run on the phone ----------
 // The day's plan travels in a link: in Firefox on the PC, right-click it, Send Link to Device, and the Pixel
 // opens the planner with those stops loaded. Notes, hours and contacts travel by backup instead (More).
@@ -824,6 +841,7 @@ function showSummary() {
   document.getElementById('run-title').textContent = 'Day summary';
   LOGID = null;
   document.getElementById('run-body').innerHTML = `
+    ${RUN && RUN.practice ? `<div class="card" style="border-color:var(--a)"><b style="color:var(--a)">Practice run.</b> <span class="addr">Nothing here is kept: End practice puts the log, contacts, hours and statuses back how they were.</span></div>` : ''}
     ${laterHtml()}
     <div class="card"><h2>${rows.length} stop${rows.length === 1 ? '' : 's'} logged today</h2>
       <div class="addr">Copy the rows, then paste into the first empty row of the Activity Log (column A).</div>
@@ -835,7 +853,7 @@ function showSummary() {
     <button class="bigbtn ghost" onclick="saveVcf(true)">Save today's contacts to my phone</button>
     <button class="bigbtn ghost" onclick="contactsCsv()">Download all contacts (CSV)</button>
     ${RUN && RUN.idx < RUN.ids.length ? '<button class="bigbtn ghost" onclick="renderStop()">Back to the run</button>' : ''}
-    <button class="bigbtn ghost" onclick="endRun()">End run and clear today's plan</button>
+    <button class="bigbtn ghost" onclick="endRun()">${RUN && RUN.practice ? 'End practice and put everything back' : 'End run and clear today\'s plan'}</button>
     <div id="copied" style="color:var(--a);font-size:13px;text-align:center"></div>`;
 }
 function logRows(rows) {
@@ -853,6 +871,7 @@ function downloadRows() {
   a.download = 'activity-' + today() + '.csv'; a.click();
 }
 function endRun() {
+  if (RUN && RUN.practice) return endPractice();
   const n = ((RUN && RUN.later) || []).length;
   if (n && !confirm(`${n} visit${n === 1 ? ' is' : 's are'} still to log. End the run anyway? ${n === 1 ? 'It' : 'They'} won't be logged.`)) return;
   RUN = null; store.set('vr_run', null); clearPlan(); closeRun();
@@ -1366,6 +1385,9 @@ function openMore() {
   document.getElementById('run-title').textContent = 'More';
   const last = store.get('vr_lastbackup', '');
   document.getElementById('run-body').innerHTML = `
+    <div class="card"><h4 style="margin-top:0">Practice run</h4>
+      <div class="addr" style="font-size:13px;margin-bottom:8px">Try a whole day with the stops you've planned: Waze, logging, log later, hours, the lot. When you end it, the visit log, contacts, hours and venue statuses go back to how they were.</div>
+      <button class="bigbtn ghost" style="margin-bottom:0" onclick="startPractice()">${RUN && RUN.practice ? 'Practice run going' : 'Start a practice run'}</button></div>
     <div class="card"><h4 style="margin-top:0">Reports</h4>
       <button class="bigbtn ghost" onclick="renderReport(0)">Weekly report for the owner</button>
       <button class="bigbtn ghost" onclick="milesCsv()">Download the mileage log (CSV)</button>
@@ -1399,8 +1421,11 @@ if ('serviceWorker' in navigator && (location.protocol === 'https:' || location.
     document.getElementById('loader').textContent = 'No signal and no saved copy of the venue list yet. Open the planner once with signal and it will work offline after that.'; return;
   }
   if (!DAYS.some(d => d.key === day)) day = DAYS[0].key;
+  const pr = store.get('vr_practice', null);
+  if (pr && pr.date !== today()) { endPractice(true); location.reload(); return; }   // a practice left open yesterday
   renderAll(true);
   document.getElementById('loader').remove();
+  try { const m = sessionStorage.getItem('vr_toast'); if (m) { sessionStorage.removeItem('vr_toast'); toast(m); } } catch (e) {}
   takePlanFromLink();
   if (RUN && RUN.date === today() && RUN.idx < RUN.ids.length) openRun();
   else if (RUN && (RUN.later || []).length) { showOverlay(); showSummary(); }
